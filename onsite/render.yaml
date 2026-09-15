@@ -1,0 +1,42 @@
+# Render Blueprint. Push this repo to GitHub, then: Render dashboard → New → Blueprint → pick the repo.
+services:
+  - type: web
+    name: onsite
+    runtime: node
+    region: singapore          # closest Render region to Sydney
+    plan: starter
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    healthCheckPath: /login
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false            # paste the Neon pooled connection string
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: CRON_SECRET
+        generateValue: true
+      - key: NEXT_PUBLIC_BASE_URL
+        value: https://onsite.onrender.com
+      - key: DEV_SHOW_OTP
+        value: "0"
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM
+        sync: false
+  # Every 4 min: widens matching on stale shifts AND keeps the Neon compute awake (free tier sleeps after 5 min idle).
+  - type: cron
+    name: onsite-matching-expand
+    runtime: node
+    region: singapore
+    schedule: "*/4 * * * *"
+    buildCommand: "true"
+    startCommand: curl -fsS "$APP_URL/api/cron/expand?key=$CRON_SECRET"
+    envVars:
+      - key: APP_URL
+        value: https://onsite.onrender.com
+      - key: CRON_SECRET
+        sync: false

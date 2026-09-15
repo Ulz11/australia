@@ -1,0 +1,40 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: light; }
+html, body { height: 100%; background: #F3F4F6; color: #15171A; -webkit-tap-highlight-color: transparent; }
+body { font-family: 'Archivo', system-ui, sans-serif; font-size: 17px; line-height: 1.35; }
+* { box-sizing: border-box; }
+input, select, textarea, button { font: inherit; }
+
+@layer components {
+  /* Buttons: one primary per screen. Big enough for a gloved thumb. */
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-2xl px-5 min-h-[56px] font-bold text-lg transition active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none select-none text-center leading-tight; }
+  .btn-primary { @apply btn bg-hv text-ink w-full; }
+  .btn-dark { @apply btn bg-ink text-white w-full; }
+  .btn-ghost { @apply btn bg-white border-2 border-line text-ink w-full; }
+  .btn-danger { @apply btn bg-white border-2 border-warn text-warn w-full; }
+  .btn-sm { @apply min-h-[44px] text-base px-4 w-auto; }
+  .card { @apply bg-white rounded-2xl border border-line p-4; }
+  .label { @apply text-[12px] uppercase tracking-[0.12em] text-steel font-bold; }
+  .input { @apply w-full rounded-2xl border-2 border-line bg-white px-4 min-h-[56px] text-lg outline-none focus:border-ink; }
+  .chip { @apply inline-flex items-center rounded-full border-2 border-line bg-white px-4 min-h-[44px] text-base font-semibold; }
+  .chip-on { @apply border-ink bg-ink text-white; }
+  .num { font-variant-numeric: tabular-nums; }
+  .stripe { background: repeating-linear-gradient(135deg, #FF7A00 0 12px, #15171A 12px 24px); height: 6px; }
+  /* A "say" block: one coloured sentence that tells you the state. */
+  .say { @apply rounded-2xl p-4 leading-snug; }
+  .say-grey { @apply say bg-site text-ink; }
+  .say-green { @apply say bg-go text-white; }
+  .say-orange { @apply say bg-hv text-ink; }
+  .say-dark { @apply say bg-ink text-white; }
+  .say-red { @apply say bg-warn text-white; }
+  .say-title { @apply text-xl font-extrabold; }
+  .say-sub { @apply text-base opacity-80 mt-0.5; }
+  /* Segmented toggle */
+  .seg { @apply grid bg-white border-2 border-line rounded-2xl p-1 gap-1; }
+  .seg-item { @apply rounded-xl min-h-[48px] flex items-center justify-center font-bold text-base text-steel; }
+  .seg-on { @apply bg-ink text-white; }
+}
+.maplibregl-ctrl-attrib { font-size: 10px; }

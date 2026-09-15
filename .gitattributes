@@ -1,0 +1,4 @@
+# Consistent line endings across Windows and Linux (Render builds on Linux)
+* text=auto eol=lf
+*.png binary
+*.ico binary

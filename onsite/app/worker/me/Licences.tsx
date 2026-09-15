@@ -1,0 +1,112 @@
+"use client";
+import { useState, useTransition } from "react";
+import { saveLicence, removeLicence } from "@/actions/worker";
+import { TICKETS } from "@/lib/award";
+import { licenceWords, STATES, AUTO_STATES, REGULATOR, type LicenceStatus } from "@/lib/verify";
+import { Field } from "@/components/ui";
+
+export type Lic = {
+  kind: string; number: string | null; issued_state: string | null; expires_on: string | null;
+  status: LicenceStatus; checked_at: string | null; check_note: string | null;
+};
+
+export function Licences({ licences, name }: { licences: Lic[]; name: string }) {
+  const [open, setOpen] = useState<string | null>(null);
+  const held = new Set(licences.map((l) => l.kind));
+  const missing = Object.keys(TICKETS).filter((k) => !held.has(k));
+
+  return (
+    <div className="card space-y-3">
+      <div>
+        <div className="text-xl font-extrabold">My cards</div>
+        <div className="text-steel">Put the numbers in once. Bosses can see they're real before they book you.</div>
+      </div>
+
+      {licences.length === 0 && <div className="say-grey"><div className="font-bold">No cards yet.</div><div className="say-sub">Start with your White Card — nearly every shift needs it.</div></div>}
+
+      {licences.map((l) => {
+        const w = licenceWords(l);
+        const tone = w.tone === "green" ? "border-go bg-go/5" : w.tone === "red" ? "border-warn bg-warn/5" : "border-line";
+        return (
+          <div key={l.kind} className={`rounded-2xl border-2 p-3 ${tone}`}>
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-lg font-bold">{TICKETS[l.kind] ?? l.kind}</div>
+                <div className="text-steel num text-sm">
+                  {l.number ? `No. ${l.number}` : "No number"}{l.issued_state ? ` · ${l.issued_state}` : ""}{l.expires_on ? ` · expires ${l.expires_on}` : ""}
+                </div>
+              </div>
+              <span className={`inline-flex items-center rounded-lg px-2.5 py-1 text-sm font-bold shrink-0 ${
+                w.tone === "green" ? "bg-go text-white" : w.tone === "red" ? "bg-warn text-white" : "bg-site text-steel"}`}>{w.label}</span>
+            </div>
+            <div className="text-sm text-steel mt-1">{l.check_note || w.detail}</div>
+            <div className="flex gap-2 mt-2">
+              <button type="button" className="btn-ghost btn-sm w-full" onClick={() => setOpen(open === l.kind ? null : l.kind)}>{open === l.kind ? "Close" : "Edit"}</button>
+              <RemoveBtn kind={l.kind} />
+            </div>
+            {open === l.kind && <Form kind={l.kind} existing={l} name={name} onDone={() => setOpen(null)} />}
+          </div>
+        );
+      })}
+
+      {missing.length > 0 && (
+        <Field label="Add a card">
+          <div className="grid grid-cols-2 gap-2">
+            {missing.map((k) => (
+              <button key={k} type="button" className={`chip justify-center w-full text-sm ${open === k ? "chip-on" : ""}`} onClick={() => setOpen(open === k ? null : k)}>
+                + {TICKETS[k]}
+              </button>
+            ))}
+          </div>
+          {open && missing.includes(open) && <Form kind={open} name={name} onDone={() => setOpen(null)} />}
+        </Field>
+      )}
+
+      <p className="text-xs text-steel">
+        We check NSW cards against the SafeWork register. Other states we confirm by hand — until then a card shows as
+        "on file, not checked". Always carry the real card on site.
+      </p>
+    </div>
+  );
+}
+
+function RemoveBtn({ kind }: { kind: string }) {
+  const [pending, start] = useTransition();
+  return (
+    <button type="button" disabled={pending} className="btn-danger btn-sm w-full"
+      onClick={() => { if (confirm("Remove this card? Shifts that need it won't be offered to you.")) start(() => removeLicence(kind)); }}>
+      Remove
+    </button>
+  );
+}
+
+function Form({ kind, existing, name, onDone }: { kind: string; existing?: Lic; name: string; onDone: () => void }) {
+  const [state, setState] = useState(existing?.issued_state ?? "NSW");
+  const [msg, setMsg] = useState<string | null>(null);
+  const auto = (AUTO_STATES as readonly string[]).includes(state);
+  return (
+    <form className="mt-3 space-y-3 border-t border-line pt-3"
+      action={async (fd) => { const r = await saveLicence(fd); if (r?.error) setMsg(r.error); else { setMsg(r?.note ?? null); if (!r?.error) setTimeout(onDone, 1800); } }}>
+      <input type="hidden" name="kind" value={kind} />
+      <Field label="Card number" hint="Exactly as printed on the front.">
+        <input name="number" defaultValue={existing?.number ?? ""} className="input num" inputMode="text" required autoFocus />
+      </Field>
+      <Field label="Name on the card"><input name="holder_name" defaultValue={name} className="input" /></Field>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Issued in">
+          <select name="issued_state" value={state} onChange={(e) => setState(e.target.value)} className="input">
+            {STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </Field>
+        <Field label="Expires (if shown)"><input name="expires_on" type="date" defaultValue={existing?.expires_on ?? ""} className="input" /></Field>
+      </div>
+      <div className={`say-${auto ? "grey" : "grey"} text-sm`}>
+        {auto
+          ? <>We'll check this straight away against <b>{REGULATOR[state].name}</b>.</>
+          : <>{state} has no instant check yet — we'll confirm it with <b>{REGULATOR[state]?.name ?? "the regulator"}</b> by hand and update the badge.</>}
+      </div>
+      {msg && <div className="say-grey text-sm"><b>{msg}</b></div>}
+      <button className="btn-primary">Save card</button>
+    </form>
+  );
+}

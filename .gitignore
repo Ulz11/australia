@@ -1,0 +1,21 @@
+# Secrets — the Neon password and session secret live in these. Never commit them.
+**/.env
+**/.env.local
+**/.env.*.local
+
+# Build output and dependencies
+**/node_modules/
+**/.next/
+**/out/
+**/*.tsbuildinfo
+**/next-env.d.ts
+
+# Logs and scratch
+**/*.log
+**/__pycache__/
+**/.eslintcache
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

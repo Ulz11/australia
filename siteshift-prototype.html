@@ -1,0 +1,618 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SiteShift Prototype</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --stage:#d9d6cf; --frame:#1a1b1d; --bg:#f2f0eb; --card:#ffffff; --ink:#17191c; --ink2:#4a4e55; --muted:#82868e;
+  --line:#dcd8cf; --line2:#ebe8e0; --accent:#f05a1a; --accent-ink:#c4450f; --accent-soft:#fde6da;
+  --ok:#2c7d4f; --ok-soft:#dcefe3; --warn:#c99700; --warn-soft:#fbf1cc; --bad:#b3261e; --bad-soft:#f8dedc;
+  --free:#dcefe3; --busy:#e6e3dc; --work:#f05a1a;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--stage);color:var(--ink);font-family:"Source Sans 3",system-ui,sans-serif;font-size:15px;line-height:1.4}
+h1,h2,h3,.disp{font-family:"Barlow Condensed","Arial Narrow",sans-serif;margin:0;line-height:1.05}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace}
+button{font:inherit;cursor:pointer;border:0;background:none;color:inherit;padding:0}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+input,select{font:inherit;color:var(--ink)}
+
+/* stage */
+.stage{max-width:1160px;margin:0 auto;padding:28px 20px 60px}
+.stagehead{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:12px;margin-bottom:22px}
+.stagehead h1{font-size:40px;text-transform:uppercase;letter-spacing:.01em}
+.stagehead p{margin:4px 0 0;color:var(--ink2);max-width:60ch}
+.stripe{height:8px;background:repeating-linear-gradient(135deg,var(--accent) 0 16px,var(--ink) 16px 32px);width:220px;margin-top:10px}
+.log{background:var(--frame);color:#e8e6df;font-family:"JetBrains Mono",monospace;font-size:12px;padding:10px 14px;border-radius:4px;max-height:96px;overflow:auto;margin-bottom:18px;line-height:1.5}
+.log div::before{content:"› ";color:var(--accent)}
+.phones{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:28px;justify-items:center}
+.phonewrap{width:100%;max-width:400px}
+.phonelabel{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;padding:0 6px}
+.phonelabel b{font-family:"Barlow Condensed",sans-serif;font-size:22px;text-transform:uppercase;letter-spacing:.03em}
+.phonelabel span{font-size:13px;color:var(--ink2)}
+.phone{background:var(--frame);border-radius:38px;padding:12px;box-shadow:0 20px 50px rgba(0,0,0,.28)}
+.screen{background:var(--bg);border-radius:28px;height:760px;display:flex;flex-direction:column;overflow:hidden;position:relative}
+.status{display:flex;justify-content:space-between;padding:12px 22px 4px;font-size:12px;font-weight:600;color:var(--ink2)}
+.view{flex:1;overflow-y:auto;padding:8px 16px 20px;scrollbar-width:thin}
+.tabs{display:flex;border-top:1px solid var(--line);background:var(--card);padding:8px 6px 14px}
+.tabs button{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;padding:6px 0;border-radius:8px}
+.tabs button .ic{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.tabs button.on{color:var(--accent-ink)}
+
+/* components */
+.topbar{display:flex;align-items:center;gap:10px;padding:8px 0 12px;position:sticky;top:0;background:var(--bg);z-index:2}
+.topbar h2{font-size:30px;text-transform:uppercase;letter-spacing:.01em;flex:1}
+.back{width:34px;height:34px;border-radius:50%;background:var(--card);border:1px solid var(--line);display:grid;place-items:center;font-size:18px}
+.eyebrow{font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:10px}
+.card.tap{cursor:pointer}
+.card.tap:hover{border-color:var(--accent)}
+.row{display:flex;align-items:center;gap:10px}
+.row .grow{flex:1;min-width:0}
+.title{font-family:"Barlow Condensed",sans-serif;font-size:21px;font-weight:600;line-height:1.05}
+.sub{font-size:13px;color:var(--ink2)}
+.big{font-family:"Barlow Condensed",sans-serif;font-size:34px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:14px;border-radius:10px;background:var(--accent);color:#fff;font-family:"Barlow Condensed",sans-serif;font-size:22px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.btn:disabled{background:var(--line);color:var(--muted);cursor:not-allowed}
+.btn.sec{background:var(--card);color:var(--ink);border:1.5px solid var(--ink)}
+.btn.ok{background:var(--ok)}
+.btn.sm{padding:9px 12px;font-size:17px;width:auto}
+.btn.ghost{background:transparent;color:var(--accent-ink);border:1.5px solid var(--accent)}
+.pill{display:inline-block;font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:3px;background:var(--line2);color:var(--ink2);white-space:nowrap}
+.pill.ok{background:var(--ok-soft);color:var(--ok)}
+.pill.warn{background:var(--warn-soft);color:#7a5b00}
+.pill.bad{background:var(--bad-soft);color:var(--bad)}
+.pill.acc{background:var(--accent-soft);color:var(--accent-ink)}
+.avatar{width:42px;height:42px;border-radius:50%;background:var(--ink);color:#fff;display:grid;place-items:center;font-family:"Barlow Condensed",sans-serif;font-size:18px;font-weight:700;flex:none}
+.avatar.lg{width:64px;height:64px;font-size:26px}
+.field{margin-bottom:12px}
+.field label{display:block;font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+.field input,.field select{width:100%;padding:11px 12px;border:1.5px solid var(--line);border-radius:8px;background:var(--card);font-size:16px}
+.field .hint{font-size:12px;color:var(--muted);margin-top:4px}
+.seg{display:flex;background:var(--line2);border-radius:8px;padding:3px;gap:3px}
+.seg button{flex:1;padding:8px;border-radius:6px;font-weight:600;font-size:14px;color:var(--ink2)}
+.seg button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{padding:6px 10px;border:1.5px solid var(--line);border-radius:20px;font-size:13px;font-weight:600;background:var(--card);color:var(--ink2)}
+.chip.on{border-color:var(--accent);color:var(--accent-ink);background:var(--accent-soft)}
+.stepper{display:flex;align-items:center;gap:0;border:1.5px solid var(--line);border-radius:8px;background:var(--card);overflow:hidden}
+.stepper button{width:46px;height:44px;font-size:22px;font-weight:600;color:var(--ink2);background:var(--line2)}
+.stepper .val{flex:1;text-align:center;font-family:"Barlow Condensed",sans-serif;font-size:24px;font-weight:700;font-variant-numeric:tabular-nums}
+.kv{display:grid;grid-template-columns:1fr auto;gap:6px 12px;font-size:14px}
+.kv dt{color:var(--ink2)}.kv dd{margin:0;text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+.divider{height:1px;background:var(--line2);margin:10px 0}
+.empty{text-align:center;color:var(--muted);padding:26px 10px;font-size:14px}
+.toast{position:absolute;left:16px;right:16px;bottom:86px;background:var(--ink);color:#fff;padding:12px 14px;border-radius:10px;font-size:14px;box-shadow:0 8px 20px rgba(0,0,0,.25);opacity:0;transform:translateY(8px);transition:.25s;pointer-events:none;z-index:9}
+.toast.show{opacity:1;transform:none}
+.notif{background:var(--ink);color:#fff;border-radius:12px;padding:12px 14px;margin-bottom:12px;display:flex;gap:10px;align-items:center;cursor:pointer}
+.notif .dot{width:10px;height:10px;border-radius:50%;background:var(--accent);flex:none}
+.hours-edit{display:flex;align-items:center;gap:8px}
+.hours-edit input{width:74px;padding:8px;border:1.5px solid var(--line);border-radius:6px;text-align:center;font-family:"Barlow Condensed",sans-serif;font-size:22px;font-weight:700}
+table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+th{text-align:left;font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:500;padding:6px 4px;border-bottom:1px solid var(--line)}
+td{padding:9px 4px;border-bottom:1px solid var(--line2);vertical-align:middle}
+td.r,th.r{text-align:right}
+.tick{width:26px;height:26px;border-radius:6px;border:1.5px solid var(--line);display:grid;place-items:center;background:var(--card)}
+.tick.on{background:var(--ok);border-color:var(--ok);color:#fff}
+
+/* calendar */
+.cal{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
+.calhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.calhead h3{font-size:26px;text-transform:uppercase}
+.dow{display:grid;grid-template-columns:repeat(7,1fr);font-family:"JetBrains Mono",monospace;font-size:10px;color:var(--muted);text-align:center;letter-spacing:.06em;margin-bottom:4px}
+.days{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.day{aspect-ratio:1/1.15;border-radius:8px;background:var(--busy);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-weight:600;font-size:15px;color:var(--ink2);position:relative;font-variant-numeric:tabular-nums}
+.day.pad{background:transparent}
+.day.past{opacity:.35}
+.day.free{background:var(--free);color:var(--ok)}
+.day.work{background:var(--work);color:#fff}
+.day.today::after{content:"";position:absolute;inset:2px;border:2px solid var(--ink);border-radius:6px;pointer-events:none}
+.day small{font-family:"JetBrains Mono",monospace;font-size:9px;font-weight:500}
+.day .badge{position:absolute;top:3px;right:4px;width:8px;height:8px;border-radius:50%;background:var(--accent)}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--ink2);margin:10px 2px 0}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:5px}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:var(--card);border-radius:22px 22px 0 0;padding:10px 16px 20px;box-shadow:0 -10px 30px rgba(0,0,0,.2);max-height:82%;overflow-y:auto;z-index:5;transform:translateY(100%);transition:.28s}
+.sheet.show{transform:none}
+.sheet .grab{width:44px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 12px}
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.35);z-index:4;opacity:0;pointer-events:none;transition:.25s}
+.scrim.show{opacity:1;pointer-events:auto}
+.clockbtn{width:180px;height:180px;border-radius:50%;margin:18px auto;display:grid;place-items:center;background:var(--accent);color:#fff;font-family:"Barlow Condensed",sans-serif;font-size:30px;font-weight:700;text-transform:uppercase;box-shadow:0 10px 30px rgba(240,90,26,.4);text-align:center;line-height:1}
+.clockbtn.out{background:var(--ink);box-shadow:0 10px 30px rgba(0,0,0,.3)}
+.clockbtn:disabled{background:var(--line);color:var(--muted);box-shadow:none}
+.map{background:#e9e6de;border:1px solid var(--line);border-radius:12px;overflow:hidden;position:relative}
+.map svg{display:block;width:100%;height:auto}
+.map .pin{cursor:pointer}
+.map .pin:hover circle.dot{stroke-width:3}
+.search{display:flex;gap:8px;margin-bottom:10px}
+.search input{flex:1;padding:11px 12px;border:1.5px solid var(--line);border-radius:8px;background:var(--card);font-size:15px}
+.invite{background:var(--ink);color:#fff;border-radius:12px;padding:14px}
+.invite .code{font-family:"JetBrains Mono",monospace;font-size:15px;background:rgba(255,255,255,.1);padding:8px 10px;border-radius:6px;margin:8px 0;word-break:break-all}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="stagehead">
+    <div>
+      <h1>SiteShift · Prototype</h1>
+      <p>Boss on the left, worker on the right. Both phones share one live state — post a shift on the left, watch it reach the worker on the right. Sydney, September 2026, fake data.</p>
+      <div class="stripe"></div>
+    </div>
+    <button class="btn sm sec" onclick="resetAll()">Reset demo</button>
+  </div>
+  <div class="log" id="log"><div>Ready. Tip: Boss → Projects → Need workers → Find workers.</div></div>
+  <div class="phones">
+    <div class="phonewrap">
+      <div class="phonelabel"><b>Boss</b><span>Dave Rinaldi · Rinaldi Formwork Pty Ltd</span></div>
+      <div class="phone"><div class="screen" id="bossScreen">
+        <div class="status"><span>6:02</span><span>●●● 5G</span></div>
+        <div class="view" id="bossView"></div>
+        <div class="tabs" id="bossTabs"></div>
+        <div class="toast" id="bossToast"></div>
+      </div></div>
+    </div>
+    <div class="phonewrap">
+      <div class="phonelabel"><b>Worker</b><span>Batbayar Ganbold · General labourer</span></div>
+      <div class="phone"><div class="screen" id="workerScreen">
+        <div class="status"><span>6:02</span><span>●●● 5G</span></div>
+        <div class="view" id="workerView"></div>
+        <div class="tabs" id="workerTabs"></div>
+        <div class="scrim" id="wScrim" onclick="closeSheet()"></div>
+        <div class="sheet" id="wSheet"></div>
+        <div class="toast" id="workerToast"></div>
+      </div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------- constants (Building and Construction General On-site Award MA000020, from 1 Jul 2026) ---------- */
+const AWARD_CASUAL_MIN = 35.55;   // includes 25% casual loading + industry allowance
+const LOADING = 0.25;
+const TICKETS = {WC:"White Card (GCI)", LF:"Forklift (HRW LF)", WP:"EWP >11m (HRW WP)", DG:"Dogging (HRW DG)", SB:"Basic scaffold (HRW SB)"};
+const TODAY = new Date(2026,8,2); // Wed 2 Sep 2026
+
+/* ---------- fake data ---------- */
+const HOME = {lat:-33.917,lng:151.153}; // Marrickville (Batbayar)
+const ME_BOSS="b1";
+const BOSSES={
+  b1:{name:"Dave Rinaldi",co:"Rinaldi Formwork Pty Ltd",abn:"61 402 118 337",phone:"0400 118 337",rating:4.8,paysIn:"3 days",approvesIn:"same day"},
+  b2:{name:"Hana Kowalski",co:"KW Concrete Pumping",abn:"22 887 014 590",phone:"0411 290 118",rating:4.6,paysIn:"6 days",approvesIn:"next day"},
+  b3:{name:"Sam Nguyen",co:"Nguyen Bros Demolition",abn:"90 316 552 201",phone:"0424 771 003",rating:4.2,paysIn:"9 days",approvesIn:"2 days"},
+  b4:{name:"Ahmed Haddad",co:"Haddad Landscapes",abn:"37 150 688 924",phone:"0402 663 519",rating:4.9,paysIn:"2 days",approvesIn:"same day"},
+  b5:{name:"Georgia Pappas",co:"Pappas Interiors (fitout)",abn:"48 921 377 110",phone:"0413 555 802",rating:4.4,paysIn:"7 days",approvesIn:"next day"},
+};
+const projectsSeed = [
+  {id:"p1",owner:"b1",name:"Marrickville Townhouses",addr:"14 Sydenham Rd, Marrickville",lat:-33.911,lng:151.161},
+  {id:"p2",owner:"b1",name:"Parramatta Rd Fitout",addr:"Lvl 2, 220 Parramatta Rd, Stanmore",lat:-33.895,lng:151.166},
+  {id:"p3",owner:"b1",name:"Tempe Warehouse Slab",addr:"7 Bellevue St, Tempe",lat:-33.924,lng:151.158},
+  {id:"p4",owner:"b2",name:"Alexandria Apartments",addr:"55 Botany Rd, Alexandria",lat:-33.906,lng:151.196},
+  {id:"p5",owner:"b3",name:"Dulwich Hill Demo",addr:"3 Wardell Rd, Dulwich Hill",lat:-33.904,lng:151.139},
+  {id:"p6",owner:"b4",name:"Earlwood Retaining Wall",addr:"88 Homer St, Earlwood",lat:-33.925,lng:151.125},
+  {id:"p7",owner:"b5",name:"Newtown Café Fitout",addr:"301 King St, Newtown",lat:-33.897,lng:151.179},
+  {id:"p8",owner:"b2",name:"Mascot Carpark Pour",addr:"120 Coward St, Mascot",lat:-33.926,lng:151.190},
+  {id:"p9",owner:"b3",name:"Leichhardt School Strip-out",addr:"2 Marion St, Leichhardt",lat:-33.884,lng:151.157},
+];
+const workersSeed = [
+  {id:"w1",name:"Batbayar Ganbold",init:"BG",phone:"0412 880 191",role:"General labourer",tickets:["WC","LF"],lat:-33.917,lng:151.153,radius:25,score:96,shifts:31,type:"casual",rate:38,since:"Mar 2026",avail:{},visa:"Student (500)",lang:"Mongolian, English"},
+  {id:"w2",name:"Liam Okafor",init:"LO",phone:"0433 210 998",role:"Carpenter",tickets:["WC","WP"],lat:-33.93,lng:151.17,radius:30,score:91,shifts:58,type:"fulltime",rate:46,since:"Aug 2024",avail:{}},
+  {id:"w3",name:"Nima Sherpa",init:"NS",phone:"0401 556 302",role:"Steel fixer",tickets:["WC","DG"],lat:-33.88,lng:151.19,radius:20,score:88,shifts:22,type:"casual",rate:40,since:"Jun 2026",avail:{},visa:"Student (500)",lang:"Nepali, English"},
+  {id:"w4",name:"João Ferreira",init:"JF",phone:"0455 780 640",role:"General labourer",tickets:["WC"],lat:-33.90,lng:151.18,radius:15,score:83,shifts:9,type:null,rate:null,since:null,avail:{},visa:"Working Holiday (417)",lang:"Portuguese, English"},
+  {id:"w5",name:"Tom Halloran",init:"TH",phone:"0418 302 227",role:"Leading hand",tickets:["WC","SB","LF"],lat:-33.92,lng:151.14,radius:40,score:99,shifts:140,type:"fulltime",rate:52,since:"Feb 2023",avail:{}},
+  {id:"w6",name:"Priya Nair",init:"PN",phone:"0466 118 455",role:"General labourer",tickets:["WC"],lat:-33.78,lng:151.10,radius:10,score:90,shifts:14,type:null,rate:null,since:null,avail:{},visa:"Student (500)"},
+  {id:"w7",name:"Marco Bianchi",init:"MB",phone:"0490 212 777",role:"Forklift operator",tickets:["WC","LF"],lat:-33.95,lng:151.20,radius:25,score:74,shifts:6,type:null,rate:null,since:null,avail:{},visa:"Working Holiday (417)",lang:"Italian, English"},
+  {id:"w8",name:"Sione Tupou",init:"ST",phone:"0421 909 001",role:"General labourer",tickets:["WC","DG","SB"],lat:-33.86,lng:151.21,radius:30,score:95,shifts:44,type:null,rate:null,since:null,avail:{}},
+  {id:"w9",name:"Enkhjin Tsogt",init:"ET",phone:"0413 402 776",role:"General labourer",tickets:["WC"],lat:-33.91,lng:151.15,radius:20,score:0,shifts:0,type:null,rate:null,since:null,avail:{},visa:"Student (500)",lang:"Mongolian",invitedBy:"w1"},
+  {id:"w10",name:"Carlos Mendes",init:"CM",phone:"0478 233 910",role:"Concrete labourer",tickets:["WC","LF"],lat:-33.93,lng:151.19,radius:25,score:92,shifts:37,type:"casual",rate:39,since:"May 2026",avail:{},visa:"Working Holiday (417)",lang:"Portuguese, Spanish"},
+  {id:"w11",name:"Aisha Rahman",init:"AR",phone:"0432 118 664",role:"Traffic controller",tickets:["WC"],lat:-33.89,lng:151.13,radius:35,score:97,shifts:61,type:null,rate:null,since:null,avail:{}},
+  {id:"w12",name:"Kenji Watanabe",init:"KW",phone:"0499 870 121",role:"Carpenter",tickets:["WC","WP","SB"],lat:-33.87,lng:151.20,radius:20,score:85,shifts:19,type:null,rate:null,since:null,avail:{},visa:"Working Holiday (417)",lang:"Japanese, English"},
+  {id:"w13",name:"Dylan Whitford",init:"DW",phone:"0417 660 345",role:"Dogman / rigger",tickets:["WC","DG"],lat:-33.94,lng:151.16,radius:45,score:89,shifts:73,type:null,rate:null,since:null,avail:{}},
+  {id:"w14",name:"Sofia Alvarez",init:"SA",phone:"0450 219 077",role:"General labourer",tickets:["WC"],lat:-33.90,lng:151.17,radius:12,score:78,shifts:4,type:null,rate:null,since:null,avail:{},visa:"Student (500)",lang:"Spanish, English"},
+  {id:"w15",name:"Rahul Gupta",init:"RG",phone:"0468 004 552",role:"Forklift operator",tickets:["WC","LF","WP"],lat:-33.86,lng:151.09,radius:30,score:93,shifts:52,type:null,rate:null,since:null,avail:{}},
+  {id:"w16",name:"Bilguun Erdene",init:"BE",phone:"0421 337 908",role:"General labourer",tickets:["WC","SB"],lat:-33.92,lng:151.16,radius:25,score:87,shifts:12,type:"casual",rate:38,since:"Jul 2026",avail:{},visa:"Student (500)",lang:"Mongolian, English",invitedBy:"w1"},
+  {id:"w17",name:"Mick O'Brien",init:"MO",phone:"0408 991 210",role:"Excavator operator",tickets:["WC","DG"],lat:-33.95,lng:151.13,radius:50,score:98,shifts:210,type:null,rate:null,since:null,avail:{}},
+  {id:"w18",name:"Lena Fischer",init:"LF",phone:"0436 501 883",role:"Demolition labourer",tickets:["WC"],lat:-33.89,lng:151.15,radius:18,score:81,shifts:7,type:null,rate:null,since:null,avail:{},visa:"Working Holiday (417)",lang:"German, English"},
+];
+const shiftsSeed = [
+  // pid, +days, start, hours, spots, role, tickets, rate, note, pre-booked worker ids
+  ["p2",2,7,8,1,"Forklift operator",["WC","LF"],42,"Unloading deliveries, Lvl 2 dock.",[]],
+  ["p4",1,6.5,9,3,"Concrete labourer",["WC"],38,"Slab pour, 6:30 sharp. Gumboots.",["w10","w14"]],
+  ["p5",1,7,8,2,"Demolition labourer",["WC"],37,"Strip-out, dusty — P2 masks supplied.",["w18"]],
+  ["p6",2,7,7,2,"General labourer",["WC"],36,"Blocks and backfill. Park on Homer St.",[]],
+  ["p7",3,7.5,8,1,"Carpenter",["WC"],48,"Joinery install with Georgia.",[]],
+  ["p8",5,5.5,10,4,"Concrete labourer",["WC"],40,"Big pour, Sunday. Early start, long day.",["w10"]],
+  ["p9",3,7,8,2,"Demolition labourer",["WC","DG"],41,"Crane lift of plant, dogman ticket needed.",[]],
+  ["p4",6,6.5,8,2,"General labourer",["WC"],38,"",[]],
+  ["p6",8,7,8,1,"General labourer",["WC"],36,"",[]],
+];
+function seedAvail(w,days){days.forEach(d=>w.avail[d]="free");}
+function key(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
+function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x;}
+function fmtDate(k){const [y,m,d]=k.split("-").map(Number);return new Date(y,m-1,d).toLocaleDateString("en-AU",{weekday:"short",day:"numeric",month:"short"});}
+function fmtTime(h){const hh=Math.floor(h),mm=Math.round((h-hh)*60);const ap=hh>=12?"PM":"AM";return `${((hh+11)%12)+1}:${String(mm).padStart(2,"0")} ${ap}`;}
+function money(n){return "$"+n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,",");}
+function km(a,b){const R=6371,dl=(b.lat-a.lat)*Math.PI/180,dn=(b.lng-a.lng)*Math.PI/180;const x=Math.sin(dl/2)**2+Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.sqrt(x));}
+
+let S; // state
+function resetAll(){
+  const t1=key(addDays(TODAY,1)),t2=key(addDays(TODAY,2)),t3=key(addDays(TODAY,3)),t5=key(addDays(TODAY,5)),t6=key(addDays(TODAY,6));
+  const workers=JSON.parse(JSON.stringify(workersSeed));
+  const D=n=>key(addDays(TODAY,n));
+  // availability: Batbayar free Thu/Fri + weekends; others a realistic scatter
+  seedAvail(workers[0],[D(1),D(2),D(4),D(5),D(8),D(9),D(11),D(12),D(15),D(16),D(18),D(19)]);
+  const scatter={w2:[],w3:[1,3,6],w4:[1,2,3,4],w5:[1],w6:[1,2,5],w7:[1,2,6],w8:[1,2,3,8],w9:[1,2,3,4,5,6,7,8],w10:[1,2,5,8],w11:[1,3,4,6],w12:[2,3,6],w13:[1,3,5,6],w14:[1,2],w15:[2,3],w16:[1,4,5,8],w17:[3,5],w18:[1,2,3]};
+  workers.forEach(w=>{if(scatter[w.id])seedAvail(w,scatter[w.id].map(D));});
+  S={
+    projects:JSON.parse(JSON.stringify(projectsSeed)),
+    workers, me:"w1",
+    shifts:[], bookings:[], notifications:[], invites:[{code:"BATB-7K2",wid:"w9",joined:D(-6),shifts:0},{code:"BATB-7K2",wid:"w16",joined:D(-40),shifts:12}],
+    // approved hours for Dave's crew over the last 3 weeks (pay + history)
+    history:[],
+    awardMode:true,
+    boss:{tab:"projects",view:"list",pid:null,sid:null,wid:null,form:null,workersTab:"fulltime"},
+    worker:{tab:"calendar",month:new Date(2026,8,1),sheetDay:null,sid:null,explore:"map",q:""},
+    log:[]
+  };
+  // history: full-timers Mon–Fri, casuals a few days a week; last week unpaid, earlier weeks paid
+  const crew=[["w2",46,"fulltime",[1,1,1,1,1]],["w5",52,"fulltime",[1,1,1,1,1]],["w1",38,"casual",[0,1,0,1,1]],["w3",40,"casual",[1,0,1,0,0]],["w10",39,"casual",[0,0,1,1,0]],["w16",38,"casual",[1,0,0,1,0]]];
+  const sites=["p1","p2","p3"];
+  for(let wkBack=3;wkBack>=0;wkBack--){
+    const mon=addDays(TODAY,-((TODAY.getDay()+6)%7)-wkBack*7);
+    crew.forEach(([wid,rate,type,pattern],ci)=>pattern.forEach((on,di)=>{
+      const day=addDays(mon,di); if(!on||day>=TODAY)return;
+      const hours=type==="fulltime"?[8,8,8.5,8,7.5][di]:[8,8.5,8,9,8][(di+ci)%5];
+      S.history.push({wid,date:key(day),hours,rate,type,paid:wkBack>=1,pid:sites[(di+ci)%3]});
+    }));
+  }
+  // open shifts on the board across five bosses; some already part-filled by other workers
+  SEEDING=true;
+  shiftsSeed.forEach(([pid,dd,start,hours,spots,role,tickets,rate,note,pre],i)=>{
+    const s={id:"s_seed"+i,pid,date:D(dd),start,hours,spots,role,tickets,rate,source:"new",note,matched:0,notified:[]};
+    S.shifts.push(s);match(s);
+    pre.forEach(wid=>S.bookings.push({id:"b_seed"+i+wid,sid:s.id,wid,status:"accepted"}));
+  });
+  // Dave's own shift tomorrow, already accepted by Nima, so the boss phone isn't empty
+  const mine={id:"s_mine",pid:"p1",date:D(1),start:6.5,hours:8,spots:2,role:"Formwork labourer",tickets:["WC"],rate:38,source:"new",note:"Stripping formwork, level 1.",matched:0,notified:[]};
+  S.shifts.push(mine);match(mine);S.bookings.push({id:"b_mine_w3",sid:"s_mine",wid:"w3",status:"accepted"});
+  SEEDING=false;
+  log(`Demo reset. ${S.workers.length} workers, ${S.projects.length} sites, ${S.shifts.length} open shifts across ${Object.keys(BOSSES).length} bosses.`);
+  renderAll();
+}
+function log(m){const el=document.getElementById("log");const d=document.createElement("div");d.textContent=m;el.prepend(d);}
+function toast(which,msg){const t=document.getElementById(which+"Toast");t.textContent=msg;t.classList.add("show");clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove("show"),2200);}
+const bossOf=p=>BOSSES[p.owner];const myProjects=()=>S.projects.filter(p=>p.owner===ME_BOSS);
+const proj=id=>S.projects.find(p=>p.id===id), wk=id=>S.workers.find(w=>w.id===id), sh=id=>S.shifts.find(s=>s.id===id);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+/* ---------- matching ---------- */
+let SEEDING=false;
+function match(shift){
+  const p=proj(shift.pid);const out=[];const reasons={dist:0,avail:0,ticket:0};
+  for(const w of S.workers){
+    if(w.id==="w0")continue;
+    const d=km(w,p); if(d>w.radius){reasons.dist++;continue;}
+    if(w.avail[shift.date]!=="free"){reasons.avail++;continue;}
+    if(!shift.tickets.every(t=>w.tickets.includes(t))){reasons.ticket++;continue;}
+    const workedBefore=S.history.some(h=>h.wid===w.id)||!!w.type;
+    out.push({w,d,rank:w.score+(workedBefore?15:0)-d*0.5});
+  }
+  out.sort((a,b)=>b.rank-a.rank);
+  const n=Math.min(out.length,shift.spots*3);
+  const notified=out.slice(0,n);
+  shift.matched=out.length; shift.pool=S.workers.length; shift.notified=notified.map(x=>x.w.id); shift.reasons=reasons;
+  notified.forEach(x=>S.notifications.push({wid:x.w.id,sid:shift.id,dist:x.d,read:false}));
+  if(!SEEDING)log(`Matching "${p.name}" ${fmtDate(shift.date)}: ${S.workers.length} in pool → ${out.length} passed (skipped: ${reasons.dist} too far, ${reasons.avail} not free, ${reasons.ticket} no ticket) → notified top ${n}.`);
+}
+
+/* ---------- pay ---------- */
+function calcPay(hours,rate,type){
+  // Formal: casual rate must include 25% loading; boss enters the loaded rate; OT after 8h at 1.5x (first 2h) then 2x per Award cl. 29 simplified
+  if(!S.awardMode) return {base:hours*rate,ot:0,total:hours*rate,note:"Flat rate"};
+  const ord=Math.min(hours,8),ot1=Math.min(Math.max(hours-8,0),2),ot2=Math.max(hours-10,0);
+  const base=ord*rate,ot=ot1*rate*1.5+ot2*rate*2;
+  return {base,ot,total:base+ot,note:ot>0?`8h ordinary + ${(ot1+ot2).toFixed(1)}h overtime`:"Ordinary hours"};
+}
+
+/* ================= BOSS ================= */
+const bossTabs=[["projects","Projects",`<svg class="ic" viewBox="0 0 24 24"><path d="M12 22s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/></svg>`],
+ ["workers","Workers",`<svg class="ic" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4a3.5 3.5 0 0 1 0 7M21.5 20a6.5 6.5 0 0 0-5-6.3"/></svg>`],
+ ["pay","Pay",`<svg class="ic" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="13" rx="2"/><circle cx="12" cy="12.5" r="3"/><path d="M6 9.5h.01M18 15.5h.01"/></svg>`]];
+function renderBoss(){
+  const b=S.boss;
+  document.getElementById("bossTabs").innerHTML=bossTabs.map(([k,l,ic])=>`<button class="${b.tab===k?"on":""}" onclick="bossTab('${k}')">${ic}${l}</button>`).join("");
+  const v=document.getElementById("bossView");
+  let h="";
+  if(b.tab==="projects"){
+    if(b.view==="list")h=bossProjects();
+    else if(b.view==="project")h=bossProject();
+    else if(b.view==="post")h=bossPost();
+    else if(b.view==="shift")h=bossShift();
+  }else if(b.tab==="workers"){
+    h=b.view==="profile"?bossProfile():bossWorkers();
+  }else h=bossPay();
+  v.innerHTML=h; v.scrollTop=0;
+}
+function bossTab(k){S.boss.tab=k;S.boss.view=k==="projects"?"list":"list";renderBoss();}
+function bossGo(view,extra={}){Object.assign(S.boss,{view},extra);renderBoss();}
+
+function shiftsFor(pid){return S.shifts.filter(s=>s.pid===pid);}
+function bookingsFor(sid){return S.bookings.filter(b=>b.sid===sid);}
+function shiftStatus(s){const bk=bookingsFor(s.id);if(bk.length===0)return {t:"Notified "+s.notified.length,c:"warn"};if(bk.every(b=>b.status==="approved"))return {t:"Approved",c:"ok"};if(bk.some(b=>b.status==="clockedin"))return {t:"On site",c:"acc"};if(bk.length>=s.spots)return {t:"Filled "+bk.length+"/"+s.spots,c:"ok"};return {t:bk.length+"/"+s.spots+" accepted",c:"warn"};}
+
+function bossProjects(){
+  return `<div class="topbar"><h2>Projects</h2></div>
+  ${myProjects().map(p=>{const ss=shiftsFor(p.id);const next=ss[0];return `<div class="card tap" onclick="bossGo('project',{pid:'${p.id}'})">
+    <div class="row"><div class="grow"><div class="title">${esc(p.name)}</div><div class="sub">${esc(p.addr)}</div></div><span class="pill ${ss.length?"acc":""}">${ss.length?ss.length+" shift"+(ss.length>1?"s":""):"No shifts"}</span></div>
+    ${next?`<div class="divider"></div><div class="sub">${fmtDate(next.date)} · ${fmtTime(next.start)} · ${next.spots} × ${esc(next.role)} · <b>${shiftStatus(next).t}</b></div>`:""}
+  </div>`;}).join("")}
+  <button class="btn sec" onclick="addProject()">+ Add project (site pin)</button>
+  <div style="height:12px"></div>
+  <button class="btn" onclick="startPost(null)">Need workers</button>`;
+}
+function addProject(){const n=prompt("Site name","Erskineville Duplex");if(!n)return;S.projects.push({id:"p"+Date.now(),owner:ME_BOSS,name:n,addr:"Pin set on map",lat:-33.90,lng:151.18});toast("boss","Project added");renderBoss();}
+function bossProject(){
+  const p=proj(S.boss.pid);const ss=shiftsFor(p.id);
+  return `<div class="topbar"><button class="back" onclick="bossGo('list')">‹</button><h2>${esc(p.name)}</h2></div>
+  <div class="sub" style="margin:-6px 0 12px">${esc(p.addr)} · <span class="mono">${p.lat.toFixed(3)}, ${p.lng.toFixed(3)}</span></div>
+  <button class="btn" onclick="startPost('${p.id}')">Need workers</button>
+  <div class="eyebrow" style="margin:18px 0 8px">Shifts</div>
+  ${ss.length?ss.map(s=>{const st=shiftStatus(s);return `<div class="card tap" onclick="bossGo('shift',{sid:'${s.id}'})"><div class="row"><div class="grow"><div class="title">${fmtDate(s.date)} · ${fmtTime(s.start)}</div><div class="sub">${s.spots} × ${esc(s.role)} · ${s.hours}h · ${money(s.rate)}/h</div></div><span class="pill ${st.c}">${st.t}</span></div></div>`;}).join(""):`<div class="empty">No shifts posted for this site yet.</div>`}`;
+}
+function startPost(pid){S.boss.form={pid:pid||myProjects()[0].id,date:key(addDays(TODAY,1)),start:6.5,hours:8,spots:2,role:"General labourer",tickets:["WC"],rate:AWARD_CASUAL_MIN,source:"new",note:""};bossGo("post");}
+function bossPost(){
+  const f=S.boss.form;const d1=key(addDays(TODAY,1)),d2=key(addDays(TODAY,2)),d3=key(addDays(TODAY,3));
+  const crew=S.workers.filter(w=>w.type);
+  return `<div class="topbar"><button class="back" onclick="bossGo(S.boss.pid?'project':'list')">‹</button><h2>Post a shift</h2></div>
+  <div class="field"><label>Who</label><div class="seg"><button class="${f.source==="new"?"on":""}" onclick="pf('source','new')">Find new</button><button class="${f.source==="crew"?"on":""}" onclick="pf('source','crew')">My workers</button></div></div>
+  <div class="field"><label>Project</label><select onchange="pf('pid',this.value)">${myProjects().map(p=>`<option value="${p.id}" ${p.id===f.pid?"selected":""}>${esc(p.name)}</option>`).join("")}</select></div>
+  <div class="field"><label>Day</label><div class="seg">${[d1,d2,d3].map(d=>`<button class="${f.date===d?"on":""}" onclick="pf('date','${d}')">${fmtDate(d).replace(",","")}</button>`).join("")}</div></div>
+  <div class="row" style="gap:10px;margin-bottom:12px">
+    <div class="field grow" style="margin:0"><label>Start</label><select onchange="pf('start',+this.value)">${[6,6.5,7,7.5,8,13].map(t=>`<option value="${t}" ${t===f.start?"selected":""}>${fmtTime(t)}</option>`).join("")}</select></div>
+    <div class="field grow" style="margin:0"><label>Hours</label><div class="stepper"><button onclick="pf('hours',Math.max(4,f_.hours-1))">−</button><div class="val">${f.hours}</div><button onclick="pf('hours',Math.min(12,f_.hours+1))">+</button></div></div>
+  </div>
+  <div class="row" style="gap:10px;margin-bottom:12px">
+    <div class="field grow" style="margin:0"><label>How many</label><div class="stepper"><button onclick="pf('spots',Math.max(1,f_.spots-1))">−</button><div class="val">${f.spots}</div><button onclick="pf('spots',Math.min(10,f_.spots+1))">+</button></div></div>
+    <div class="field grow" style="margin:0"><label>Doing what</label><select onchange="pf('role',this.value)">${["General labourer","Formwork labourer","Concrete labourer","Forklift operator","Dogman","Carpenter","Demolition labourer"].map(r=>`<option ${r===f.role?"selected":""}>${r}</option>`).join("")}</select></div>
+  </div>
+  <div class="field"><label>Tickets required</label><div class="chips">${Object.entries(TICKETS).map(([k,l])=>`<button class="chip ${f.tickets.includes(k)?"on":""}" ${k==="WC"?"disabled":""} onclick="toggleTicket('${k}')">${l}</button>`).join("")}</div><div class="hint">General Construction Induction (White Card) is always required on site.</div></div>
+  <div class="field"><label>Rate per hour (casual, incl. 25% loading)</label><div class="stepper"><button onclick="pf('rate',Math.max(${AWARD_CASUAL_MIN},+(f_.rate-1).toFixed(2)))">−</button><div class="val">${money(f.rate)}</div><button onclick="pf('rate',+(f_.rate+1).toFixed(2))">+</button></div><div class="hint">Floor: ${money(AWARD_CASUAL_MIN)} — Building &amp; Construction General On-site Award (MA000020), Level 1 casual, from 1 Jul 2026. Cannot go lower.</div></div>
+  <div class="field"><label>One line for the crew (optional)</label><input placeholder="Steel caps. Park on Smith St." value="${esc(f.note)}" oninput="f_.note=this.value"></div>
+  ${f.source==="crew"?`<div class="eyebrow" style="margin-bottom:6px">Send directly to</div><div class="chips" style="margin-bottom:14px">${crew.map(w=>`<button class="chip ${(f.direct||[]).includes(w.id)?"on":""}" onclick="toggleDirect('${w.id}')">${esc(w.name.split(" ")[0])}</button>`).join("")}</div>`:""}
+  <div class="card" style="background:var(--line2);border:0"><dl class="kv"><dt>Estimated cost</dt><dd>${money(f.spots*calcPay(f.hours,f.rate,"casual").total)}</dd><dt>Super (12%) on top, paid by you</dt><dd>${money(f.spots*calcPay(f.hours,f.rate,"casual").total*0.12)}</dd></dl></div>
+  <button class="btn" onclick="submitPost()">${f.source==="crew"?"Send to my workers":"Find workers"}</button>`;
+}
+let f_; function pf(k,v){f_=S.boss.form;S.boss.form[k]=v;renderBoss();}
+function toggleTicket(k){const t=S.boss.form.tickets;const i=t.indexOf(k);i>=0?t.splice(i,1):t.push(k);renderBoss();}
+function toggleDirect(id){const f=S.boss.form;f.direct=f.direct||[];const i=f.direct.indexOf(id);i>=0?f.direct.splice(i,1):f.direct.push(id);renderBoss();}
+document.addEventListener("click",()=>{if(S&&S.boss.form)f_=S.boss.form;},true);
+function submitPost(){
+  const f=S.boss.form;const s={id:"s"+Date.now(),...f,matched:0,notified:[]};
+  S.shifts.push(s);
+  if(f.source==="crew"){const ids=f.direct&&f.direct.length?f.direct:S.workers.filter(w=>w.type).map(w=>w.id);s.notified=ids;ids.forEach(id=>S.notifications.push({wid:id,sid:s.id,dist:km(wk(id),proj(s.pid)),read:false}));log(`Direct offer to ${ids.length} of your workers.`);}
+  else match(s);
+  S.boss.form=null;S.boss.pid=s.pid;bossGo("shift",{sid:s.id});
+  toast("boss",s.source==="crew"?"Sent to your workers":`Notified ${s.notified.length} matched workers`);
+  renderWorker();
+}
+function bossShift(){
+  const s=sh(S.boss.sid);const p=proj(s.pid);const bk=bookingsFor(s.id);const st=shiftStatus(s);
+  return `<div class="topbar"><button class="back" onclick="bossGo('project',{pid:'${s.pid}'})">‹</button><h2>${fmtDate(s.date)} · ${fmtTime(s.start)}</h2></div>
+  <div class="card"><div class="row"><div class="grow"><div class="title">${esc(p.name)}</div><div class="sub">${s.spots} × ${esc(s.role)} · ${s.hours}h · ${money(s.rate)}/h${s.tickets.length>1?" · "+s.tickets.filter(t=>t!=="WC").join(", "):""}</div></div><span class="pill ${st.c}">${st.t}</span></div>
+  ${s.source==="new"?`<div class="divider"></div><div class="sub mono" style="font-size:12px">Matching: ${s.pool} in pool · ${s.matched} passed distance / free / tickets · ${s.notified.length} notified${s.reasons?` · skipped ${s.reasons.dist} too far, ${s.reasons.avail} not free, ${s.reasons.ticket} no ticket`:""}</div>`:""}
+  </div>
+  <div class="eyebrow" style="margin:14px 0 8px">Accepted (${bk.length}/${s.spots})</div>
+  ${bk.length?bk.map(b=>bossBookingCard(b,s)).join(""):`<div class="empty">Waiting for workers to accept.<br><span class="mono" style="font-size:11px">Next batch notified automatically after 20 min if unfilled.</span></div>`}
+  ${bk.length&&bk.some(b=>b.status==="clockedout")?`<button class="btn ok" onclick="approveAll('${s.id}')">Approve all hours</button>`:""}`;
+}
+function bossBookingCard(b,s){
+  const w=wk(b.wid);const st={accepted:["Accepted","ok"],clockedin:["On site","acc"],clockedout:["Awaiting approval","warn"],approved:["Approved","ok"]}[b.status];
+  const pay=calcPay(b.hoursBoss??b.hours??s.hours,s.rate,"casual");
+  return `<div class="card"><div class="row"><div class="avatar">${w.init}</div><div class="grow"><div class="title">${esc(w.name)}</div><div class="sub">${esc(w.role)} · ${w.tickets.join(" ")} · ${w.score?w.score+"% reliable · "+w.shifts+" shifts":"New — no shifts yet"}${w.lang?" · "+esc(w.lang.split(",")[0]):""}</div></div><span class="pill ${st[1]}">${st[0]}</span></div>
+  <div class="divider"></div>
+  <div class="row"><a class="btn sm ghost" href="tel:${w.phone.replace(/\s/g,"")}" style="text-decoration:none">☎ ${w.phone}</a><div class="grow"></div>
+    ${b.status==="accepted"?`<button class="btn sm sec" onclick="removeBooking('${b.id}')">Remove</button>`:""}</div>
+  ${b.status!=="accepted"?`<div class="divider"></div><dl class="kv"><dt>Clock in</dt><dd>${b.inAt} <span class="pill ${b.inDist<=0.3?"ok":""}">${b.inDist<=0.3?"On site":b.inDist.toFixed(1)+" km away"}</span></dd>${b.outAt?`<dt>Clock out</dt><dd>${b.outAt}</dd><dt>Hours recorded</dt><dd>${b.hours}h</dd>`:""}</dl>`:""}
+  ${b.status==="clockedout"?`<div class="divider"></div><div class="hours-edit"><span class="sub">Approve</span><input type="number" step="0.5" min="0" value="${b.hoursBoss??b.hours}" onchange="editHours('${b.id}',+this.value)"><span class="sub">h → <b>${money(pay.total)}</b> <span class="mono" style="font-size:11px">(${pay.note})</span></span><div class="grow"></div><button class="btn sm ok" onclick="approve('${b.id}')">Approve</button></div>${b.hoursBoss!=null&&b.hoursBoss!==b.hours?`<div class="sub" style="margin-top:6px;color:var(--warn)">Edited from ${b.hours}h — worker will see this.</div>`:""}`:""}
+  ${b.status==="approved"?`<div class="divider"></div><dl class="kv"><dt>Approved hours</dt><dd>${b.hoursBoss}h</dd><dt>Owed (${pay.note.toLowerCase()})</dt><dd>${money(pay.total)}</dd></dl>${b.disputed?`<div class="pill bad" style="margin-top:8px">Worker disagrees — call them</div>`:""}`:""}
+  </div>`;
+}
+function removeBooking(id){S.bookings=S.bookings.filter(b=>b.id!==id);toast("boss","Removed — they've been told");renderAll();}
+function editHours(id,v){const b=S.bookings.find(x=>x.id===id);b.hoursBoss=v;renderBoss();}
+function approve(id){const b=S.bookings.find(x=>x.id===id);b.hoursBoss=b.hoursBoss??b.hours;b.status="approved";b.approvedAt=new Date().toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"});
+  const s=sh(b.sid);const w=wk(b.wid);
+  S.history.push({wid:b.wid,date:s.date,hours:b.hoursBoss,rate:s.rate,type:"casual",paid:false,pid:s.pid,bid:b.id});
+  if(!w.type){w.type="casual";w.rate=s.rate;w.since="Sep 2026";log(`${w.name} added to My Workers (casual).`);}
+  w.shifts++;log(`Approved ${b.hoursBoss}h for ${w.name}. Record locked on both phones.`);toast("boss","Hours approved");renderAll();}
+function approveAll(sid){bookingsFor(sid).filter(b=>b.status==="clockedout").forEach(b=>approve(b.id));}
+
+function bossWorkers(){
+  const t=S.boss.workersTab;const list=S.workers.filter(w=>w.type===t);
+  return `<div class="topbar"><h2>My workers</h2></div>
+  <div class="seg" style="margin-bottom:12px"><button class="${t==="fulltime"?"on":""}" onclick="S.boss.workersTab='fulltime';renderBoss()">Full-time (${S.workers.filter(w=>w.type==="fulltime").length})</button><button class="${t==="casual"?"on":""}" onclick="S.boss.workersTab='casual';renderBoss()">Casual (${S.workers.filter(w=>w.type==="casual").length})</button></div>
+  ${list.map(w=>{const hrs=S.history.filter(h=>h.wid===w.id).reduce((a,h)=>a+h.hours,0);return `<div class="card tap" onclick="bossGo('profile',{wid:'${w.id}'})"><div class="row"><div class="avatar">${w.init}</div><div class="grow"><div class="title">${esc(w.name)}</div><div class="sub">${esc(w.role)} · ${money(w.rate)}/h · ${hrs}h with you</div></div><span class="sub">›</span></div></div>`;}).join("")||`<div class="empty">Nobody here yet. Approve someone's hours and they'll appear.</div>`}
+  <button class="btn sec" onclick="toast('boss','Enter a phone number → they get an invite')">+ Add by phone number</button>`;
+}
+function bossProfile(){
+  const w=wk(S.boss.wid);const hist=S.history.filter(h=>h.wid===w.id).slice().reverse();const hrs=hist.reduce((a,h)=>a+h.hours,0);
+  return `<div class="topbar"><button class="back" onclick="bossGo('list')">‹</button><h2>Profile</h2></div>
+  <div class="card"><div class="row"><div class="avatar lg">${w.init}</div><div class="grow"><div class="title" style="font-size:24px">${esc(w.name)}</div><div class="sub">${esc(w.role)}</div><div style="margin-top:4px"><span class="pill ${w.type==="fulltime"?"acc":"ok"}">${w.type==="fulltime"?"Full-time":"Casual"}</span> <span class="pill">${w.score}% reliable</span></div></div></div>
+  <div class="divider"></div>
+  <div class="row"><a class="btn sm ghost" href="tel:${w.phone.replace(/\s/g,"")}" style="text-decoration:none">☎ ${w.phone}</a><div class="grow"></div><button class="btn sm" onclick="bookAgain('${w.id}')">Book again</button></div></div>
+  <div class="card"><div class="eyebrow" style="margin-bottom:8px">Employment</div><dl class="kv">
+    <dt>Type</dt><dd><select style="padding:4px 6px;border:1px solid var(--line);border-radius:6px" onchange="wk('${w.id}').type=this.value;renderBoss()"><option value="fulltime" ${w.type==="fulltime"?"selected":""}>Full-time</option><option value="casual" ${w.type==="casual"?"selected":""}>Casual</option></select></dd>
+    <dt>Rate you pay</dt><dd>${money(w.rate)}/h</dd><dt>With you since</dt><dd>${w.since}</dd><dt>Total hours</dt><dd>${hrs}h</dd>${w.lang?`<dt>Languages</dt><dd>${esc(w.lang)}</dd>`:""}${w.visa?`<dt>Visa (info only)</dt><dd>${w.visa}</dd>`:""}</dl></div>
+  <div class="card"><div class="eyebrow" style="margin-bottom:8px">Tickets (verified)</div><div class="chips">${w.tickets.map(t=>`<span class="chip on">${TICKETS[t]}</span>`).join("")}</div></div>
+  <div class="card"><div class="eyebrow" style="margin-bottom:8px">Worker pack</div><div class="sub">Work rights check · White Card ${w.tickets.includes("WC")?"✓":"✗"} · Fair Work Information Statement ✓ · Casual Employment Information Statement ${w.type==="casual"?"✓":"n/a"} · TFN declaration ✓ · Super choice ✓</div><button class="btn sm sec" style="margin-top:8px" onclick="toast('boss','PDF pack generated')">Download pack</button></div>
+  <div class="eyebrow" style="margin:6px 0 8px">Hours history</div>
+  <div class="card" style="padding:4px 12px"><table><tr><th>Day</th><th>Site</th><th class="r">Hours</th><th class="r">Pay</th><th></th></tr>${hist.map(h=>`<tr><td>${fmtDate(h.date)}</td><td>${esc(proj(h.pid).name.split(" ")[0])}</td><td class="r">${h.hours}</td><td class="r">${money(calcPay(h.hours,h.rate,h.type).total)}</td><td class="r"><span class="pill ${h.paid?"ok":"warn"}">${h.paid?"Paid":"Owed"}</span></td></tr>`).join("")||`<tr><td colspan="5" class="empty">No hours yet</td></tr>`}</table></div>`;
+}
+function bookAgain(wid){startPost(null);S.boss.form.source="crew";S.boss.form.direct=[wid];S.boss.form.rate=Math.max(AWARD_CASUAL_MIN,wk(wid).rate);renderBoss();}
+
+function weekOf(k){const [y,m,d]=k.split("-").map(Number);const dt=new Date(y,m-1,d);const dow=(dt.getDay()+6)%7;return key(addDays(dt,-dow));}
+function bossPay(){
+  const weeks={};S.history.forEach(h=>{const w=weekOf(h.date);(weeks[w]=weeks[w]||[]).push(h);});
+  const wkKeys=Object.keys(weeks).sort().reverse();
+  return `<div class="topbar"><h2>Pay</h2></div>
+  <div class="card"><div class="row"><div class="grow"><div class="title" style="font-size:18px">Calculation</div><div class="sub">${S.awardMode?"Award: 8h ordinary, then OT ×1.5 (2h), ×2":"Flat: hours × rate"}</div></div><div class="seg" style="width:150px"><button class="${S.awardMode?"on":""}" onclick="S.awardMode=true;renderBoss()">Award</button><button class="${!S.awardMode?"on":""}" onclick="S.awardMode=false;renderBoss()">Flat</button></div></div></div>
+  ${wkKeys.map(wkk=>{const rows=weeks[wkk];const byW={};rows.forEach(h=>{(byW[h.wid]=byW[h.wid]||[]).push(h);});const tot=rows.reduce((a,h)=>a+calcPay(h.hours,h.rate,h.type).total,0);const owed=rows.filter(h=>!h.paid).reduce((a,h)=>a+calcPay(h.hours,h.rate,h.type).total,0);
+    return `<div class="eyebrow" style="margin:12px 0 6px">Week starting ${fmtDate(wkk)}</div>
+    <div class="card" style="padding:4px 12px 10px"><table><tr><th>Worker</th><th class="r">Hours</th><th class="r">Total</th><th class="r">Paid</th></tr>
+    ${Object.entries(byW).map(([wid,hs])=>{const w=wk(wid);const hrs=hs.reduce((a,h)=>a+h.hours,0);const t=hs.reduce((a,h)=>a+calcPay(h.hours,h.rate,h.type).total,0);const allPaid=hs.every(h=>h.paid);
+      return `<tr><td><b>${esc(w.name)}</b><br><span class="sub">${w.type==="fulltime"?"Full-time":"Casual"} · ${money(hs[0].rate)}/h</span></td><td class="r">${hrs}</td><td class="r"><b>${money(t)}</b></td><td class="r"><button class="tick ${allPaid?"on":""}" onclick="markPaid('${wkk}','${wid}')" aria-label="Mark paid">${allPaid?"✓":""}</button></td></tr>`;}).join("")}
+    <tr><td><b>Week total</b><br><span class="sub">+ super 12% ${money(tot*0.12)} to funds</span></td><td></td><td class="r"><b>${money(tot)}</b></td><td class="r"><span class="pill ${owed?"warn":"ok"}">${owed?money(owed)+" owed":"All paid"}</span></td></tr></table>
+    <button class="btn sm sec" style="margin-top:8px" onclick="toast('boss','CSV exported (Xero / MYOB columns)')">Export CSV</button></div>`;}).join("")}`;
+}
+function markPaid(wkk,wid){const rows=S.history.filter(h=>weekOf(h.date)===wkk&&h.wid===wid);const to=!rows.every(h=>h.paid);rows.forEach(h=>h.paid=to);log(`${wk(wid).name}: week ${fmtDate(wkk)} marked ${to?"paid":"unpaid"}. Worker sees it.`);renderAll();}
+
+/* ================= WORKER ================= */
+const workerTabs=[["calendar","Calendar",`<svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/></svg>`],
+ ["explore","Explore",`<svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>`],
+ ["shift","Shift",`<svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>`],
+ ["me","Me",`<svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>`]];
+function renderWorker(){
+  const w=S.worker;
+  document.getElementById("workerTabs").innerHTML=workerTabs.map(([k,l,ic])=>`<button class="${w.tab===k?"on":""}" onclick="workerTab('${k}')">${ic}${l}</button>`).join("");
+  const v=document.getElementById("workerView");
+  v.innerHTML=w.tab==="calendar"?workerCal():w.tab==="explore"?workerExplore():w.tab==="shift"?workerShift():workerMe();
+  v.scrollTop=0;
+}
+
+/* ---------- Explore: map / list of open shifts within radius ---------- */
+function openShifts(){
+  const w=me();const q=S.worker.q.trim().toLowerCase();
+  return S.shifts.filter(s=>s.date>=key(TODAY)&&bookingsFor(s.id).length<s.spots&&!S.bookings.some(b=>b.sid===s.id&&b.wid===S.me))
+    .map(s=>({s,p:proj(s.pid),d:km(w,proj(s.pid))}))
+    .filter(x=>x.d<=w.radius&&(!q||x.s.role.toLowerCase().includes(q)||x.p.name.toLowerCase().includes(q)||x.p.addr.toLowerCase().includes(q)))
+    .sort((a,b)=>a.d-b.d);
+}
+function workerExplore(){
+  const w=me();const open=openShifts();const mode=S.worker.explore;
+  return `<div class="topbar"><h2>Explore</h2></div>
+  <div class="search"><input placeholder="Search: forklift, labourer, Marrickville…" value="${esc(S.worker.q)}" oninput="S.worker.q=this.value;renderWorker();this.focus();this.setSelectionRange(99,99)"></div>
+  <div class="seg" style="margin-bottom:10px"><button class="${mode==="map"?"on":""}" onclick="S.worker.explore='map';renderWorker()">Map</button><button class="${mode==="list"?"on":""}" onclick="S.worker.explore='list';renderWorker()">List</button></div>
+  <div class="sub" style="margin:0 2px 8px">${open.length} open shift${open.length===1?"":"s"} within ${w.radius} km · ${new Set(open.map(x=>x.p.id)).size} site${new Set(open.map(x=>x.p.id)).size===1?"":"s"}</div>
+  ${mode==="map"?exploreMap(open):exploreList(open)}`;
+}
+function exploreMap(open){
+  const w=me();const W=360,H=300;
+  // simple equirectangular projection centred on the worker's home
+  const c={lat:w.lat,lng:w.lng};const kmPerLng=111*Math.cos(c.lat*Math.PI/180),kmPerLat=111;
+  const span=Math.max(w.radius*1.15,8);const px=k=>W/2*(k/span);
+  const X=lng=>W/2+px((lng-c.lng)*kmPerLng),Y=lat=>H/2-px((lat-c.lat)*kmPerLat)*(H/W)*(W/H);
+  const byP={};open.forEach(x=>{(byP[x.p.id]=byP[x.p.id]||{p:x.p,d:x.d,n:0}).n++;});
+  const quiet=S.projects.filter(p=>!byP[p.id]);
+  const roads=[[-33.87,151.22,-33.93,151.10,"Parramatta Rd"],[-33.86,151.21,-33.96,151.16,"Princes Hwy"],[-33.80,151.19,-33.94,151.19,""],[-33.89,151.09,-33.89,151.23,""]];
+  return `<div class="map"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Map of open shifts near you">
+    <defs><pattern id="g" width="30" height="30" patternUnits="userSpaceOnUse"><path d="M30 0H0V30" fill="none" stroke="#dcd8ce" stroke-width="1"/></pattern></defs>
+    <rect width="${W}" height="${H}" fill="url(#g)"/>
+    ${roads.map(([a,b,cc,d,l])=>`<line x1="${X(b)}" y1="${Y(a)}" x2="${X(d)}" y2="${Y(cc)}" stroke="#cfcabf" stroke-width="5" stroke-linecap="round"/>${l?`<text x="${(X(b)+X(d))/2}" y="${(Y(a)+Y(cc))/2-8}" font-size="9" fill="#9a968c" font-family="JetBrains Mono" text-anchor="middle">${l}</text>`:""}`).join("")}
+    <circle cx="${X(c.lng)}" cy="${Y(c.lat)}" r="${px(w.radius)}" fill="rgba(240,90,26,.06)" stroke="#f05a1a" stroke-dasharray="4 4" stroke-width="1.2"/>
+    <text x="${X(c.lng)+px(w.radius)-4}" y="${Y(c.lat)-6}" font-size="9" fill="#c4450f" font-family="JetBrains Mono" text-anchor="end">${w.radius} km</text>
+    ${quiet.map(({id,lat,lng,name})=>`<g class="pin" onclick="openSite('${id}')"><circle cx="${X(lng)}" cy="${Y(lat)}" r="6" fill="#b9b4a8" stroke="#fff" stroke-width="2"/></g>`).join("")}
+    ${Object.values(byP).map(({p,n})=>`<g class="pin" onclick="openSite('${p.id}')">
+      <path d="M${X(p.lng)} ${Y(p.lat)} l-11 -16 a13 13 0 1 1 22 0 z" fill="#f05a1a" stroke="#fff" stroke-width="2"/>
+      <circle class="dot" cx="${X(p.lng)}" cy="${Y(p.lat)-19}" r="8" fill="#17191c" stroke="#fff" stroke-width="1.5"/>
+      <text x="${X(p.lng)}" y="${Y(p.lat)-15.5}" font-size="10" font-weight="700" fill="#fff" text-anchor="middle" font-family="Barlow Condensed">${n}</text>
+      <text x="${X(p.lng)}" y="${Y(p.lat)+12}" font-size="9" fill="#17191c" font-weight="600" text-anchor="middle" font-family="Source Sans 3">${esc(p.name.split(" ").slice(0,2).join(" "))}</text></g>`).join("")}
+    <circle cx="${X(c.lng)}" cy="${Y(c.lat)}" r="7" fill="#2c7d4f" stroke="#fff" stroke-width="2.5"/><text x="${X(c.lng)}" y="${Y(c.lat)+18}" font-size="9" fill="#2c7d4f" font-weight="600" text-anchor="middle">Home</text>
+  </svg></div>
+  <div class="legend" style="margin:8px 2px 0"><span><i style="background:#f05a1a;border-radius:50% 50% 50% 0"></i>Open shifts (tap)</span><span><i style="background:#b9b4a8;border-radius:50%"></i>Site, nothing open</span><span><i style="background:#2c7d4f;border-radius:50%"></i>You</span></div>
+  ${open.length?`<div class="eyebrow" style="margin:14px 0 6px">Nearest</div>${exploreList(open.slice(0,2))}`:`<div class="empty">Nothing open within ${w.radius} km. Widen your radius in Me.</div>`}`;
+}
+function exploreList(open){
+  if(!open.length)return `<div class="empty">No open shifts match.</div>`;
+  return open.map(({s,p,d})=>{const free=me().avail[s.date]==="free";const pay=calcPay(s.hours,s.rate,"casual");const hasT=s.tickets.every(t=>me().tickets.includes(t));
+    return `<div class="card tap" onclick="openSite('${p.id}')"><div class="row"><div class="grow"><div class="title">${esc(s.role)} · ${money(s.rate)}/h</div><div class="sub">${esc(p.name)} · ${d.toFixed(1)} km · ${fmtDate(s.date)} ${fmtTime(s.start)} · ${s.hours}h</div></div><div style="text-align:right"><div class="big" style="font-size:22px">${money(pay.total)}</div><span class="pill ${!hasT?"bad":free?"ok":""}">${!hasT?"Ticket needed":free?"You're free":"Marked busy"}</span></div></div></div>`;}).join("");
+}
+function openSite(pid){S.worker.sitePid=pid;S.worker.sheetDay=null;renderSiteSheet();document.getElementById("wSheet").classList.add("show");document.getElementById("wScrim").classList.add("show");}
+function renderSiteSheet(){
+  const p=proj(S.worker.sitePid);const w=me();const d=km(w,p);
+  const list=S.shifts.filter(s=>s.pid===p.id&&s.date>=key(TODAY)&&!S.bookings.some(b=>b.sid===s.id&&b.wid===S.me));
+  const body=list.length?list.map(s=>{const taken=bookingsFor(s.id).length;const full=taken>=s.spots;const free=w.avail[s.date]==="free";const hasT=s.tickets.every(t=>w.tickets.includes(t));const pay=calcPay(s.hours,s.rate,"casual");
+    return `<div class="card"><div class="row"><div class="grow"><div class="title" style="font-size:22px">${fmtDate(s.date)} · ${fmtTime(s.start)}</div><div class="sub">${s.hours}h · ${esc(s.role)}</div></div><span class="pill ${full?"bad":"ok"}">${full?"Full":s.spots-taken+" spot"+(s.spots-taken>1?"s":"")}</span></div>
+    <div class="divider"></div><dl class="kv"><dt>Rate</dt><dd>${money(s.rate)}/h casual</dd><dt>Day's pay</dt><dd>${money(pay.total)}</dd><dt>Boss</dt><dd>${esc(bossOf(p).co)} · ★ ${bossOf(p).rating}</dd><dt>Pays in</dt><dd>${bossOf(p).paysIn} · approves ${bossOf(p).approvesIn}</dd>${s.note?`<dt>Note</dt><dd>${esc(s.note)}</dd>`:""}</dl>
+    ${s.tickets.filter(t=>t!=="WC").length?`<div class="chips" style="margin-top:8px">${s.tickets.map(t=>`<span class="chip ${w.tickets.includes(t)?"on":""}">${TICKETS[t]}${w.tickets.includes(t)?"":" ✗"}</span>`).join("")}</div>`:""}
+    ${!free&&!full&&hasT?`<div class="sub" style="margin-top:8px;color:var(--warn)">You're marked busy on this day. Taking it will mark you free.</div>`:""}
+    <button class="btn" style="margin-top:12px" ${full||!hasT?"disabled":""} onclick="takeFromExplore('${s.id}')">${!hasT?"Ticket required":"Take it"}</button></div>`;}).join("")
+    :`<div class="empty">Nothing open at this site right now.</div>`;
+  document.getElementById("wSheet").innerHTML=`<div class="grab"></div><div class="row" style="margin-bottom:2px"><h3 style="font-size:26px;text-transform:uppercase" class="grow">${esc(p.name)}</h3><span class="pill">${d.toFixed(1)} km</span></div><div class="sub" style="margin-bottom:12px">${esc(p.addr)}</div>${body}`;
+}
+function takeFromExplore(sid){const s=sh(sid);if(me().avail[s.date]!=="free"){me().avail[s.date]="free";log(`Batbayar marked ${fmtDate(s.date)} free by taking a shift.`);}takeShift(sid);}
+function workerTab(k){S.worker.tab=k;closeSheet();renderWorker();}
+const me=()=>wk(S.me);
+function myBookings(){return S.bookings.filter(b=>b.wid===S.me).map(b=>({b,s:sh(b.sid)}));}
+function myNotifs(){return S.notifications.filter(n=>n.wid===S.me&&!S.bookings.some(b=>b.sid===n.sid&&b.wid===S.me));}
+function workerCal(){
+  const m=S.worker.month;const y=m.getFullYear(),mo=m.getMonth();const first=new Date(y,mo,1);const pad=(first.getDay()+6)%7;const n=new Date(y,mo+1,0).getDate();
+  const w=me();const bk=myBookings();const notifDays=new Set(myNotifs().map(x=>sh(x.sid).date));
+  let cells="";for(let i=0;i<pad;i++)cells+=`<div class="day pad"></div>`;
+  for(let d=1;d<=n;d++){const k=key(new Date(y,mo,d));const dt=new Date(y,mo,d);const past=dt<TODAY;const b=bk.find(x=>x.s.date===k);const cls=b?"work":(w.avail[k]==="free"?"free":"");
+    cells+=`<button class="day ${cls} ${past?"past":""} ${k===key(TODAY)?"today":""}" onclick="openDay('${k}')" ${past?"disabled":""}>${d}${b?`<small>${fmtTime(b.s.start).replace(" ","")}</small>`:""}${notifDays.has(k)&&!b?`<span class="badge"></span>`:""}</button>`;}
+  const notifs=myNotifs();
+  return `<div class="topbar"><h2>My days</h2></div>
+  ${notifs.length?`<div class="notif" onclick="openDay('${sh(notifs[0].sid).date}')"><div class="dot"></div><div class="grow"><b>${notifs.length} shift${notifs.length>1?"s":""} near you</b><div style="font-size:13px;opacity:.8">${esc(proj(sh(notifs[0].sid).pid).name)} · ${fmtDate(sh(notifs[0].sid).date)} · ${notifs[0].dist.toFixed(1)} km</div></div><span>›</span></div>`:""}
+  <div class="cal"><div class="calhead"><button class="back" onclick="calMonth(-1)">‹</button><h3>${m.toLocaleDateString("en-AU",{month:"long",year:"numeric"})}</h3><button class="back" onclick="calMonth(1)">›</button></div>
+  <div class="dow"><span>MON</span><span>TUE</span><span>WED</span><span>THU</span><span>FRI</span><span>SAT</span><span>SUN</span></div><div class="days">${cells}</div>
+  <div class="legend"><span><i style="background:var(--free)"></i>Free</span><span><i style="background:var(--busy)"></i>Busy</span><span><i style="background:var(--work)"></i>Working</span><span><i style="background:var(--accent);border-radius:50%"></i>Jobs</span></div></div>
+  <p class="sub" style="margin:12px 4px 0">Tap a day to see jobs for that day. Mark days free so bosses nearby can reach you — you're only shown shifts on days you said you're free.</p>`;
+}
+function calMonth(d){S.worker.month=new Date(S.worker.month.getFullYear(),S.worker.month.getMonth()+d,1);renderWorker();}
+function openDay(k){S.worker.sheetDay=k;S.worker.sitePid=null;renderSheet();document.getElementById("wSheet").classList.add("show");document.getElementById("wScrim").classList.add("show");}
+function closeSheet(){document.getElementById("wSheet").classList.remove("show");document.getElementById("wScrim").classList.remove("show");}
+function renderSheet(){
+  const k=S.worker.sheetDay;if(!k)return;const w=me();const free=w.avail[k]==="free";const bk=myBookings().find(x=>x.s.date===k);
+  const offers=S.notifications.filter(n=>n.wid===S.me&&sh(n.sid).date===k&&!S.bookings.some(b=>b.sid===n.sid&&b.wid===S.me)).map(n=>({n,s:sh(n.sid)}));
+  let body="";
+  if(bk){body=`<div class="card" style="border-color:var(--accent)"><div class="eyebrow">Booked</div><div class="title" style="font-size:24px">${esc(proj(bk.s.pid).name)}</div><div class="sub">${fmtTime(bk.s.start)} · ${bk.s.hours}h · ${esc(bk.s.role)} · ${money(bk.s.rate)}/h</div><div class="sub" style="margin-top:6px">Boss: ${esc(bossOf(proj(bk.s.pid)).name)}, ${esc(bossOf(proj(bk.s.pid)).co)} · <a href="tel:${bossOf(proj(bk.s.pid)).phone.replace(/\s/g,"")}">☎ call</a></div></div><button class="btn" onclick="closeSheet();workerTab('shift')">Open shift</button>`;}
+  else if(!free){body=`<div class="empty">You're marked busy on ${fmtDate(k)}.</div><button class="btn ok" onclick="setAvail('${k}','free')">I'm free this day</button>`;}
+  else if(offers.length){body=offers.map(({n,s})=>{const p=proj(s.pid);const pay=calcPay(s.hours,s.rate,"casual");const taken=bookingsFor(s.id).length;return `<div class="card"><div class="row"><div class="grow"><div class="title" style="font-size:22px">${esc(p.name)}</div><div class="sub">${n.dist.toFixed(1)} km · ${esc(p.addr)}</div></div><span class="pill ${taken>=s.spots?"bad":"ok"}">${taken>=s.spots?"Full":s.spots-taken+" spot"+(s.spots-taken>1?"s":"")}</span></div>
+    <div class="divider"></div><dl class="kv"><dt>Start</dt><dd>${fmtTime(s.start)} · ${s.hours}h</dd><dt>Work</dt><dd>${esc(s.role)}</dd><dt>Rate</dt><dd>${money(s.rate)}/h casual</dd><dt>Day's pay</dt><dd>${money(pay.total)}</dd><dt>Boss</dt><dd>${esc(bossOf(p).co)} · ★ ${bossOf(p).rating}</dd><dt>Pays in</dt><dd>${bossOf(p).paysIn}</dd>${s.note?`<dt>Note</dt><dd>${esc(s.note)}</dd>`:""}</dl>
+    ${s.tickets.filter(t=>t!=="WC").length?`<div class="chips" style="margin-top:8px">${s.tickets.map(t=>`<span class="chip on">${TICKETS[t]}</span>`).join("")}</div>`:""}
+    <button class="btn" style="margin-top:12px" ${taken>=s.spots?"disabled":""} onclick="takeShift('${s.id}')">Take it</button></div>`;}).join("")+`<button class="btn sec" onclick="setAvail('${k}','busy')">Actually, I'm busy</button>`;}
+  else{body=`<div class="empty">No jobs near you on ${fmtDate(k)} yet.<br>You're marked free — you'll get a notification when a boss posts within ${w.radius} km.</div><button class="btn sec" onclick="setAvail('${k}','busy')">Mark busy</button>`;}
+  document.getElementById("wSheet").innerHTML=`<div class="grab"></div><div class="row" style="margin-bottom:10px"><h3 style="font-size:26px;text-transform:uppercase" class="grow">${fmtDate(k)}</h3><span class="pill ${bk?"acc":free?"ok":""}">${bk?"Working":free?"Free":"Busy"}</span></div>${body}`;
+}
+function setAvail(k,v){me().avail[k]=v;log(`Batbayar marked ${fmtDate(k)} ${v}.`);renderSheet();renderWorker();}
+function takeShift(sid){const s=sh(sid);if(bookingsFor(sid).length>=s.spots){toast("worker","Just filled");return;}
+  S.bookings.push({id:"b"+Date.now(),sid,wid:S.me,status:"accepted"});log(`Batbayar accepted ${proj(s.pid).name} ${fmtDate(s.date)}. Boss sees him now.`);toast("worker","You're on. Boss can see you.");closeSheet();S.worker.sid=sid;renderAll();toast("boss",`${me().name.split(" ")[0]} accepted`);}
+function workerShift(){
+  const list=myBookings().sort((a,b)=>a.s.date.localeCompare(b.s.date));
+  if(!list.length)return `<div class="topbar"><h2>Shift</h2></div><div class="empty">No shifts booked.<br>Mark days free on your calendar and take a job.</div>`;
+  const cur=list.find(x=>x.b.status!=="approved")||list[list.length-1];const {b,s}=cur;const p=proj(s.pid);
+  const pay=calcPay(b.hoursBoss??b.hours??s.hours,s.rate,"casual");
+  let action="";
+  if(b.status==="accepted")action=`<button class="clockbtn" onclick="clockIn('${b.id}')">Clock<br>in</button><div class="sub" style="text-align:center">Works from ${fmtTime(s.start-0.5)}. Your location and time are recorded — the boss sees the same thing.</div>`;
+  else if(b.status==="clockedin")action=`<button class="clockbtn out" onclick="clockOut('${b.id}')">Clock<br>out</button><div class="sub" style="text-align:center">In at ${b.inAt} · on site ✓</div>`;
+  else if(b.status==="clockedout")action=`<div class="card" style="text-align:center"><div class="eyebrow">Sent to boss</div><div class="big">${b.hours}h</div><div class="sub">${b.inAt} → ${b.outAt} · waiting for approval</div></div>`;
+  else action=`<div class="card" style="border-color:var(--ok)"><div class="eyebrow" style="color:var(--ok)">Approved ${b.approvedAt}</div><div class="row"><div class="grow"><div class="big">${b.hoursBoss}h</div><div class="sub">${money(s.rate)}/h · ${pay.note}</div></div><div style="text-align:right"><div class="big">${money(pay.total)}</div><div class="sub">owed by ${esc(bossOf(p).co)}</div></div></div>
+    ${b.hoursBoss!==b.hours?`<div class="divider"></div><div class="sub" style="color:var(--warn)">Boss changed ${b.hours}h → ${b.hoursBoss}h.</div><div class="row" style="margin-top:8px;gap:8px"><a class="btn sm ghost" href="tel:${bossOf(p).phone.replace(/\s/g,"")}" style="text-decoration:none">☎ Call ${esc(bossOf(p).name.split(" ")[0])}</a>${b.disputed?`<span class="pill bad">Flagged</span>`:`<button class="btn sm sec" onclick="dispute('${b.id}')">I disagree</button>`}</div>`:""}</div>`;
+  return `<div class="topbar"><h2>Shift</h2></div>
+  <div class="card"><div class="eyebrow">${fmtDate(s.date)}</div><div class="title" style="font-size:26px">${esc(p.name)}</div><div class="sub">${esc(p.addr)}</div><div class="divider"></div><dl class="kv"><dt>Start</dt><dd>${fmtTime(s.start)} · ${s.hours}h</dd><dt>Work</dt><dd>${esc(s.role)}</dd><dt>Rate</dt><dd>${money(s.rate)}/h</dd><dt>Boss</dt><dd>${esc(bossOf(p).name)} · <a href="tel:${bossOf(p).phone.replace(/\s/g,"")}">☎ ${bossOf(p).phone}</a></dd>${s.note?`<dt>Note</dt><dd>${esc(s.note)}</dd>`:""}</dl></div>
+  ${action}
+  ${list.length>1?`<div class="eyebrow" style="margin:16px 0 6px">Other shifts</div>${list.filter(x=>x!==cur).map(x=>`<div class="card"><div class="row"><div class="grow"><div class="title" style="font-size:18px">${fmtDate(x.s.date)} · ${esc(proj(x.s.pid).name)}</div><div class="sub">${fmtTime(x.s.start)} · ${x.s.hours}h</div></div><span class="pill">${x.b.status}</span></div></div>`).join("")}`:""}`;
+}
+function clockIn(id){const b=S.bookings.find(x=>x.id===id);const s=sh(b.sid);b.status="clockedin";b.inAt=fmtTime(s.start-0.05);b.inDist=0.12;log(`Clock in ${b.inAt}, 120 m from site pin.`);toast("worker","Clocked in");renderAll();}
+function clockOut(id){const b=S.bookings.find(x=>x.id===id);const s=sh(b.sid);b.status="clockedout";const end=s.start+s.hours+0.5;b.outAt=fmtTime(end);b.hours=+(s.hours+0.5).toFixed(1);log(`Clock out ${b.outAt}. ${b.hours}h sent to boss for approval.`);toast("worker","Sent to boss for approval");renderAll();toast("boss",`${me().name.split(" ")[0]} clocked out — approve hours`);}
+function dispute(id){const b=S.bookings.find(x=>x.id===id);b.disputed=true;log("Batbayar flagged the edited hours. Both records stay visible; they'll sort it by phone.");renderAll();}
+function workerMe(){
+  const w=me();const owed=S.history.filter(h=>h.wid===S.me).slice().reverse();const code="siteshift.app/j/BATB-7K2";
+  const fortnight=S.history.filter(h=>h.wid===S.me&&h.date>=key(addDays(TODAY,-13))).reduce((a,h)=>a+h.hours,0)+myBookings().filter(x=>x.b.status==="approved").reduce((a,x)=>a+x.b.hoursBoss,0);
+  return `<div class="topbar"><h2>Me</h2></div>
+  <div class="card"><div class="row"><div class="avatar lg">${w.init}</div><div class="grow"><div class="title" style="font-size:24px">${esc(w.name)}</div><div class="sub">${esc(w.role)} · ${w.phone}</div><div style="margin-top:4px"><span class="pill ok">${w.score}% reliable</span> <span class="pill">${w.shifts} shifts</span></div></div></div></div>
+  <div class="card"><div class="eyebrow" style="margin-bottom:8px">Tickets</div><div class="chips">${w.tickets.map(t=>`<span class="chip on">${TICKETS[t]}</span>`).join("")}<button class="chip" onclick="toast('worker','Photo → verified in ~1 hour')">+ Add</button></div></div>
+  <div class="card"><div class="eyebrow" style="margin-bottom:8px">Where I work</div><dl class="kv"><dt>Home</dt><dd>Marrickville NSW</dd><dt>Radius</dt><dd><input type="range" min="5" max="60" value="${w.radius}" oninput="me().radius=+this.value;this.nextElementSibling.textContent=this.value+' km'" style="width:110px;vertical-align:middle"> <span>${w.radius} km</span></dd><dt>Hours this fortnight</dt><dd>${fortnight}h</dd>${w.visa?`<dt>Visa (info only)</dt><dd>${w.visa}</dd>`:""}</dl></div>
+  <div class="invite"><div class="eyebrow" style="color:#fff;opacity:.7">Invite a mate</div><div style="font-family:'Barlow Condensed';font-size:22px;font-weight:600;margin-top:2px">Bring your crew</div><div class="code">${code}</div><div class="row" style="gap:8px"><button class="btn sm" style="background:#fff;color:var(--ink)" onclick="copyInvite('${code}')">Copy link</button><button class="btn sm ghost" style="border-color:#fff;color:#fff" onclick="toast('worker','Shared via WhatsApp')">Share</button></div><div class="sub" style="color:#fff;opacity:.7;margin-top:8px">${S.invites.length} joined through your link${S.invites.length?": "+S.invites.map(i=>i.wid?esc(wk(i.wid).name.split(" ")[0])+" ("+i.shifts+" shifts)":"pending").join(", "):""}. Mates who finish 3 shifts bump your score.</div></div>
+  <div class="eyebrow" style="margin:14px 0 6px">Owed to me</div>
+  <div class="card" style="padding:4px 12px"><table><tr><th>Day</th><th>Boss</th><th class="r">Hours</th><th class="r">Pay</th><th class="r"></th></tr>${owed.map(h=>`<tr><td>${fmtDate(h.date)}</td><td>${esc(bossOf(proj(h.pid)).co.split(" ")[0])}</td><td class="r">${h.hours}</td><td class="r">${money(calcPay(h.hours,h.rate,h.type).total)}</td><td class="r"><span class="pill ${h.paid?"ok":"warn"}">${h.paid?"Paid":"Owed"}</span></td></tr>`).join("")||`<tr><td colspan="5" class="empty">Nothing yet</td></tr>`}</table></div>
+  <p class="sub" style="margin:8px 4px">Every approved shift is a record you both hold — hours, times, location, rate. If pay doesn't arrive, call the boss first; after 7 days you can mark it "not paid" and it shows on their rating.</p>`;
+}
+function copyInvite(c){navigator.clipboard?.writeText("https://"+c);toast("worker","Link copied");log("Invite link copied. A mate joining via it is tagged to Batbayar.");renderWorker();}
+
+function renderAll(){renderBoss();renderWorker();if(S.worker.sheetDay)renderSheet();else if(S.worker.sitePid)renderSiteSheet();}
+resetAll();
+</script>
+</body>
+</html>

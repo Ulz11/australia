@@ -1,0 +1,498 @@
+<title>OnSite Money Model</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+:root{
+  --hv:#FF7A00; --hv-deep:#C25C00; --hv-soft:#FFF1E4;
+  --ink:#15171A; --slab:#2B2F36; --steel:#6B7280;
+  --ground:#F4F2EF;           /* concrete, warmed a touch toward the hi-vis */
+  --panel:#FFFFFF; --line:#DCD8D2; --line-soft:#E9E5E0;
+  --go:#166E3E; --warn:#B3261E; --flag:#8A6A1F;
+  --shadow:0 1px 2px rgba(21,23,26,.06);
+}
+@media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
+  --hv:#FF8C1A; --hv-deep:#FFB066; --hv-soft:#2A1C0C;
+  --ink:#F2EFEA; --slab:#C9C4BC; --steel:#9A948B;
+  --ground:#131417; --panel:#1B1D21; --line:#32353B; --line-soft:#26282D;
+  --go:#4FBE81; --warn:#FF7A6E; --flag:#D6B25A;
+  --shadow:0 1px 2px rgba(0,0,0,.4);
+}}
+:root[data-theme="dark"]{
+  --hv:#FF8C1A; --hv-deep:#FFB066; --hv-soft:#2A1C0C;
+  --ink:#F2EFEA; --slab:#C9C4BC; --steel:#9A948B;
+  --ground:#131417; --panel:#1B1D21; --line:#32353B; --line-soft:#26282D;
+  --go:#4FBE81; --warn:#FF7A6E; --flag:#D6B25A;
+  --shadow:0 1px 2px rgba(0,0,0,.4);
+}
+
+*{box-sizing:border-box}
+body{
+  background:var(--ground); color:var(--ink);
+  font-family:'Archivo',system-ui,-apple-system,sans-serif;
+  font-size:15px; line-height:1.45; margin:0;
+  padding:0 20px 80px;
+}
+.wrap{max-width:1120px; margin:0 auto}
+h1,h2,h3{text-wrap:balance; margin:0}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace; font-variant-numeric:tabular-nums}
+.num{font-variant-numeric:tabular-nums}
+
+/* ── masthead ───────────────────────────────────────────── */
+.stripe{height:7px; background:repeating-linear-gradient(115deg,var(--hv) 0 14px,var(--ink) 14px 28px)}
+header{padding:28px 0 22px; border-bottom:1px solid var(--line)}
+h1{font-size:clamp(28px,4.2vw,42px); font-weight:800; letter-spacing:-.022em; line-height:1.04}
+.sub{color:var(--steel); margin-top:8px; max-width:60ch; font-size:16px}
+.eyebrow{font-size:11px; font-weight:700; letter-spacing:.16em; text-transform:uppercase; color:var(--steel)}
+
+section{padding-top:36px}
+h2{font-size:21px; font-weight:800; letter-spacing:-.012em}
+.lede{color:var(--steel); margin-top:4px; max-width:66ch}
+
+/* ── findings: the things that change the answer ─────────── */
+.findings{display:grid; gap:14px; grid-template-columns:repeat(auto-fit,minmax(272px,1fr)); margin-top:18px}
+.finding{background:var(--panel); border:1px solid var(--line); border-top:4px solid var(--hv); padding:16px 16px 18px}
+.finding .big{font-family:'IBM Plex Mono',monospace; font-variant-numeric:tabular-nums;
+  font-size:30px; font-weight:600; letter-spacing:-.02em; line-height:1; color:var(--hv-deep)}
+.finding h3{font-size:15px; font-weight:700; margin-top:10px}
+.finding p{color:var(--steel); font-size:14px; margin:6px 0 0}
+
+/* ── controls ───────────────────────────────────────────── */
+.panel{background:var(--panel); border:1px solid var(--line); box-shadow:var(--shadow)}
+.controls{padding:18px; margin-top:16px}
+.ctl-grid{display:grid; gap:18px 26px; grid-template-columns:repeat(auto-fit,minmax(228px,1fr))}
+.ctl label{display:flex; justify-content:space-between; align-items:baseline; gap:10px; font-size:13px; font-weight:600}
+.ctl .v{font-family:'IBM Plex Mono',monospace; font-variant-numeric:tabular-nums; font-size:15px; font-weight:600; color:var(--hv-deep)}
+.ctl .hint{color:var(--steel); font-size:12px; font-weight:400; margin-top:3px; display:block}
+input[type=range]{width:100%; margin:7px 0 0; accent-color:var(--hv); height:22px}
+input[type=range]:focus-visible{outline:2px solid var(--hv); outline-offset:3px}
+.ctl-foot{display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:18px; padding-top:14px; border-top:1px solid var(--line-soft)}
+button{font:inherit; font-weight:600; cursor:pointer; border:1px solid var(--line); background:var(--panel); color:var(--ink);
+  padding:8px 14px; border-radius:2px}
+button:hover{border-color:var(--ink)}
+button:focus-visible{outline:2px solid var(--hv); outline-offset:2px}
+button.on{background:var(--ink); color:var(--ground); border-color:var(--ink)}
+.toggles{display:flex; gap:0; border:1px solid var(--line)}
+.toggles button{border:0; border-right:1px solid var(--line); border-radius:0}
+.toggles button:last-child{border-right:0}
+
+/* ── scenario columns ───────────────────────────────────── */
+.scen{display:grid; gap:0; grid-template-columns:repeat(3,1fr); margin-top:18px; border:1px solid var(--line); background:var(--panel)}
+.col{padding:18px 16px; border-right:1px solid var(--line)}
+.col:last-child{border-right:0}
+.col.pick{background:var(--hv-soft)}
+.col h3{font-size:17px; font-weight:800; display:flex; align-items:center; gap:8px}
+.dot{width:9px; height:9px; border-radius:50%; flex:none}
+.tag{color:var(--steel); font-size:13px; margin-top:3px; min-height:34px}
+.figs{margin-top:14px; display:flex; flex-direction:column; gap:0}
+.fig{display:flex; justify-content:space-between; align-items:baseline; gap:10px; padding:6px 0; border-top:1px solid var(--line-soft); font-size:13px}
+.fig:first-child{border-top:0}
+.fig .k{color:var(--steel)}
+.fig .n{font-family:'IBM Plex Mono',monospace; font-variant-numeric:tabular-nums; font-weight:600; font-size:14px}
+.hero-fig{padding:10px 0 12px; border-bottom:1px solid var(--line-soft)}
+.hero-fig .n{font-family:'IBM Plex Mono',monospace; font-variant-numeric:tabular-nums;
+  font-size:27px; font-weight:600; letter-spacing:-.02em; line-height:1.05; display:block}
+.hero-fig .k{font-size:11px; letter-spacing:.13em; text-transform:uppercase; color:var(--steel); font-weight:700}
+.pos{color:var(--go)} .neg{color:var(--warn)}
+.verdict{margin-top:14px; font-size:13px; padding:9px 11px; border-left:3px solid; line-height:1.4}
+.v-good{border-color:var(--go); background:color-mix(in srgb,var(--go) 9%,transparent)}
+.v-mid{border-color:var(--flag); background:color-mix(in srgb,var(--flag) 11%,transparent)}
+.v-bad{border-color:var(--warn); background:color-mix(in srgb,var(--warn) 9%,transparent)}
+
+/* ── charts ─────────────────────────────────────────────── */
+.charts{display:grid; gap:16px; grid-template-columns:1fr 1fr; margin-top:16px}
+.chart{padding:16px}
+.chart h3{font-size:14px; font-weight:700}
+.chart .cap{color:var(--steel); font-size:12.5px; margin-top:2px}
+svg{display:block; width:100%; height:auto; margin-top:10px}
+
+/* ── teardown table ─────────────────────────────────────── */
+.scroller{overflow-x:auto; margin-top:16px}
+table{border-collapse:collapse; width:100%; min-width:540px; background:var(--panel); font-size:14px}
+th,td{text-align:right; padding:9px 12px; border-bottom:1px solid var(--line-soft)}
+th:first-child,td:first-child{text-align:left}
+thead th{font-size:11px; letter-spacing:.11em; text-transform:uppercase; color:var(--steel); font-weight:700;
+  border-bottom:1px solid var(--line); white-space:nowrap}
+tbody td:not(:first-child){font-family:'IBM Plex Mono',monospace; font-variant-numeric:tabular-nums}
+tr.total td{border-top:2px solid var(--ink); border-bottom:0; font-weight:700}
+tr.sub td:first-child{padding-left:26px; color:var(--steel)}
+caption{caption-side:top; text-align:left; color:var(--steel); font-size:13px; padding:0 0 8px}
+
+.note{background:var(--panel); border:1px solid var(--line); border-left:4px solid var(--hv); padding:15px 17px; margin-top:16px}
+.note h3{font-size:15px; font-weight:700}
+.note p{margin:6px 0 0; color:var(--steel); font-size:14px}
+.note p strong{color:var(--ink)}
+footer{margin-top:44px; padding-top:18px; border-top:1px solid var(--line); color:var(--steel); font-size:13px}
+footer a{color:var(--hv-deep)}
+ul{margin:8px 0 0; padding-left:18px; color:var(--steel); font-size:14px}
+li{margin:4px 0}
+li strong{color:var(--ink)}
+@media (max-width:820px){
+  .scen{grid-template-columns:1fr} .col{border-right:0; border-bottom:1px solid var(--line)}
+  .charts{grid-template-columns:1fr}
+}
+@media (prefers-reduced-motion:no-preference){ .bar,.ln{transition:d .25s ease, height .25s ease, y .25s ease} }
+</style>
+
+<div class="stripe"></div>
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">OnSite · revenue model · AUD · 36 months</div>
+  <h1>$1 a match, $33 a month</h1>
+  <p class="sub">Three scenarios for the Sydney build, costed against real Stripe and Twilio pricing. Push the assumptions around — every number on the page recalculates.</p>
+</header>
+
+<section>
+  <h2>Three things that decide this</h2>
+  <p class="lede">These came out of the costing, not the plan. Each one moves the answer more than the growth rate does.</p>
+  <div class="findings">
+    <div class="finding">
+      <div class="big">32%</div>
+      <h3>Never charge the $1 on its own</h3>
+      <p>Stripe AU is 1.7% + <span class="mono">$0.30</span>. On a single dollar that's 32 cents gone. Bank the matches and bill them once a month with the subscription — one invoice, one fee. The model assumes you do.</p>
+    </div>
+    <div class="finding">
+      <div class="big">0.35%</div>
+      <h3>$1 is far below what a match is worth</h3>
+      <p>A filled 8-hour shift at the Award floor is <span class="mono">$284.40</span> of wages. A labour-hire agency takes <span class="mono">$43–71</span> of that. You're asking for one dollar. At <span class="mono">$2</span> the Base case stops losing money.</p>
+    </div>
+    <div class="finding">
+      <div class="big">12.7%</div>
+      <h3>SMS quietly eats the match fee</h3>
+      <p>Twilio to Australia is <span class="mono">$0.0695</span> a message and your matcher wakes three phones per spot. On SMS alone that's 12.7% of all revenue. Web push first, SMS only for the booking, takes it to 4.4%.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Assumptions</h2>
+  <p class="lede">Defaults are the Base case. The three scenarios differ in growth, churn and volume — these controls apply to all three at once.</p>
+  <div class="panel controls">
+    <div class="ctl-grid" id="ctls"></div>
+    <div class="ctl-foot">
+      <span class="eyebrow" style="margin-right:2px">Staffing</span>
+      <div class="toggles" role="group" aria-label="Staffing">
+        <button id="t-founders" onclick="setStaff(false)">Founders only</button>
+        <button id="t-staff" onclick="setStaff(true)">Hire support</button>
+      </div>
+      <button onclick="reset()" style="margin-left:auto">Reset to defaults</button>
+      <button onclick="share()" id="shareBtn">Copy link with these numbers</button>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>The three scenarios</h2>
+  <p class="lede">Same product, three guesses about how fast Sydney fills in. Click a column to chart it.</p>
+  <div class="scen" id="scen"></div>
+</section>
+
+<section>
+  <h2 id="chartTitle">Base · month by month</h2>
+  <p class="lede">Monthly revenue is what comes in. Cash in the bank is what's left after you've paid to grow — the trough is what you need to fund.</p>
+  <div class="charts">
+    <div class="panel chart">
+      <h3>Monthly revenue</h3>
+      <p class="cap">Subscription <span style="color:var(--ink)">■</span> &nbsp; match fees <span style="color:var(--hv)">■</span></p>
+      <div id="chartRev"></div>
+    </div>
+    <div class="panel chart">
+      <h3>Cash in the bank</h3>
+      <p class="cap">Running total, after acquisition and fixed costs.</p>
+      <div id="chartCash"></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Where one month's money goes</h2>
+  <p class="lede" id="tdLede">Month 36 of the Base case, every line item.</p>
+  <div class="scroller">
+    <table id="teardown"></table>
+  </div>
+  <div class="note">
+    <h3>The $33 and the $1 are not all yours</h3>
+    <p>Both are GST-inclusive prices — that's almost certainly why you picked $33. Once you pass <strong>$75,000</strong> turnover you must register for GST, and from then on you keep <strong class="mono">$30.00</strong> of the subscription and <strong class="mono">$0.909</strong> of the match. Every figure on this page is already net of that.</p>
+  </div>
+</section>
+
+<section>
+  <h2>How many bosses before it pays for itself</h2>
+  <p class="lede">Ignoring growth spend: the point where the customers you already have cover every cost.</p>
+  <div class="scroller"><table id="breakeven"></table></div>
+</section>
+
+<section>
+  <h2>What I'd change</h2>
+  <div class="note">
+    <h3>Price the match at what it saves, not at what feels small</h3>
+    <p>$1 is a rounding error on a $284 shift, and it prices the hardest part of your product — finding a stranger who turns up at 6am — below the cost of the text messages that find him. $2–3 is still a twentieth of an agency margin and no subbie will blink. Move the slider and watch Year 3 swing.</p>
+  </div>
+  <div class="note">
+    <h3>The subscription is the business; matching is the hook</h3>
+    <ul>
+      <li><strong>Matching revenue leaks by design.</strong> A boss meets a good worker once, then rings him direct. You can't stop that, so don't build on it.</li>
+      <li><strong>The records can't leak.</strong> Hours, approvals, the pay run, the worker pack — he opens those every week whether or not he's hiring strangers. That's what the $33 buys, and why the take-up rate matters more than any growth number here.</li>
+      <li><strong>So sell the boss app first.</strong> Get it into 20 subbies in one suburb; their crews become your worker supply for free. Liquidity from the single-player tool, not from ads.</li>
+    </ul>
+  </div>
+  <div class="note">
+    <h3>Two costs to design out before you launch</h3>
+    <p>Switch notifications to <strong>web push</strong> — the app is already a PWA, so it's free and it saves more than the match fee earns. And bill <strong>one invoice per boss per month</strong>, never per match. Both are build decisions, not pricing ones, and both are cheaper to make now than later.</p>
+  </div>
+</section>
+
+<footer>
+  <p><strong>Costed against:</strong> Stripe AU domestic card 1.7% + $0.30, falling to 1.65% + $0.30 on 1 Oct 2026 · Twilio SMS to Australia $0.0695 ex-GST · GST 10%, registration required above $75k turnover · Award casual floor $35.55/h (MA000020 CW1).</p>
+  <p style="margin-top:8px">Fixed costs assumed: hosting $45–950/mo on a step as you grow, software $150, insurance + accounting + legal $400, support staff $6,000 loaded per head. Support time 6 minutes per boss per month.</p>
+</footer>
+</div>
+
+<script>
+const GST=1.10, SMS_COST=0.0695, STRIPE_PCT=0.017, STRIPE_FIX=0.30;
+
+const SCEN=[
+ {name:"Slow", tag:"Cold start bites. Word of mouth never catches.", colour:"var(--steel)",
+  seed:5, adds:4, growth:.06, maxAdds:25, ref:.02, churn:.08, mpb:6,  take:.25, cac:200},
+ {name:"Base", tag:"Inner-West Sydney fills in, then greater Sydney.", colour:"var(--hv)",
+  seed:8, adds:8, growth:.10, maxAdds:60, ref:.05, churn:.05, mpb:12, take:.40, cac:120},
+ {name:"Fast", tag:"Density hits. Subbies bring their own crews on.", colour:"var(--go)",
+  seed:12, adds:15, growth:.14, maxAdds:140, ref:.09, churn:.03, mpb:20, take:.55, cac:60},
+];
+
+const CTLS=[
+ {k:"fee",   label:"Match fee",          min:0.5, max:5,  step:.25, def:1,   fmt:v=>"$"+v.toFixed(2),
+  hint:"Charged to the boss, per worker per filled shift."},
+ {k:"sub",   label:"Subscription",       min:0,   max:99, step:1,   def:33,  fmt:v=>"$"+v+"/mo",
+  hint:"GST-inclusive, as advertised."},
+ {k:"mpbX",  label:"Matches per boss",   min:.25, max:2.5,step:.05, def:1,   fmt:v=>"×"+v.toFixed(2),
+  hint:"Scales each scenario's volume. Base is 12 a month."},
+ {k:"takeX", label:"Who pays the subscription", min:.25, max:2, step:.05, def:1, fmt:v=>"×"+v.toFixed(2),
+  hint:"Scales the take-up rate. Base is 40% of bosses."},
+ {k:"churnX",label:"Churn",              min:.4,  max:2,  step:.05, def:1,   fmt:v=>"×"+v.toFixed(2),
+  hint:"Bosses lost each month. Base is 5%."},
+ {k:"cacX",  label:"Cost to win a boss", min:.2,  max:2.5,step:.05, def:1,   fmt:v=>"×"+v.toFixed(2),
+  hint:"Base is $120 — site visits, trade nights, Facebook groups."},
+ {k:"spm",   label:"SMS per match",      min:0,   max:4,  step:.1,  def:1.2, fmt:v=>v.toFixed(1),
+  hint:"3.5 = SMS for everything. 1.2 = push first. 0.3 = push only."},
+];
+
+let P={}, staff=true, picked=1;
+CTLS.forEach(c=>P[c.k]=c.def);
+
+const hosting=b=> b<100?45 : b<500?160 : b<2000?420 : 950;
+const fixedOpex=(b)=>{ const base=550; if(!staff) return base;
+  let people = b>150?1:0; if(b>700) people=2; return base+people*6000; };
+
+function run(s){
+  const subNet=P.sub/GST, matchNet=P.fee/GST;
+  const churn=s.churn*P.churnX, mpb=s.mpb*P.mpbX, take=Math.min(1,s.take*P.takeX), cac=s.cac*P.cacX;
+  let bosses=s.seed, adds=s.adds, cum=0; const rows=[];
+  for(let m=1;m<=36;m++){
+    const newB=Math.min(adds,s.maxAdds)+bosses*s.ref;
+    bosses=bosses-bosses*churn+newB;
+    const subs=bosses*take, matches=bosses*mpb;
+    const revMatch=matches*matchNet, revSub=subs*subNet, revenue=revMatch+revSub;
+    const sms=matches*P.spm*SMS_COST;
+    const billed=Math.max(subs,bosses*0.85);
+    const invInc=revenue*GST/Math.max(billed,1);
+    const processing=billed*(invInc*STRIPE_PCT+STRIPE_FIX);
+    const support=bosses*(6/60)*45;
+    const acq=newB*cac, fixed=hosting(bosses)+fixedOpex(bosses);
+    const profit=revenue-sms-processing-support-acq-fixed;
+    cum+=profit;
+    rows.push({m,bosses,subs,matches,revMatch,revSub,revenue,sms,processing,support,acq,fixed,profit,cum,
+               beforeCac:profit+acq});
+    adds*=(1+s.growth);
+  }
+  const last=rows[35];
+  const arpu=last.revenue/last.bosses;
+  const gm=(last.revenue-last.sms-last.processing-last.support)/last.revenue;
+  const ltv=arpu*gm/churn;
+  return {rows,last,arpu,gm,ltv,ltvcac:ltv/cac,churn,mpb,take,cac,
+    y1:rows.slice(0,12).reduce((a,r)=>a+r.revenue,0),
+    y3:rows.slice(24).reduce((a,r)=>a+r.revenue,0),
+    y3p:rows.slice(24).reduce((a,r)=>a+r.profit,0),
+    trough:Math.min(...rows.map(r=>r.cum)),
+    troughM:rows.reduce((a,r)=>r.cum<a.cum?r:a).m,
+    beMonth:(rows.find(r=>r.profit>0)||{}).m||null,
+    breakeven:breakeven(s)};
+}
+
+/** smallest boss count where a stable base covers every cost (no growth spend) */
+function breakeven(s){
+  const subNet=P.sub/GST, matchNet=P.fee/GST;
+  const mpb=s.mpb*P.mpbX, take=Math.min(1,s.take*P.takeX);
+  const pnl=B=>{
+    const matches=B*mpb, rev=matches*matchNet+B*take*subNet;
+    const sms=matches*P.spm*SMS_COST;
+    const billed=Math.max(B*take,B*0.85);
+    const proc=billed*((rev*GST/Math.max(billed,1))*STRIPE_PCT+STRIPE_FIX);
+    return rev-sms-proc-B*(6/60)*45-hosting(B)-fixedOpex(B);
+  };
+  let lo=1,hi=60000;
+  while(lo<hi){ const mid=(lo+hi)>>1; if(pnl(mid)>0) hi=mid; else lo=mid+1; }
+  return pnl(lo)>0?lo:null;
+}
+
+const money=n=>(n<0?"−$":"$")+Math.abs(Math.round(n)).toLocaleString("en-AU");
+const money2=n=>(n<0?"−$":"$")+Math.abs(n).toFixed(2);
+const compact=n=>{const a=Math.abs(n);const s=n<0?"−$":"$";
+  return a>=1e6? s+(a/1e6).toFixed(a>=1e7?0:1)+"m" : a>=1000? s+Math.round(a/1000)+"k" : s+Math.round(a);};
+
+/* ── controls ─────────────────────────────────────────── */
+document.getElementById("ctls").innerHTML=CTLS.map(c=>`
+  <div class="ctl">
+    <label for="c-${c.k}"><span>${c.label}</span><span class="v" id="v-${c.k}"></span></label>
+    <input type="range" id="c-${c.k}" min="${c.min}" max="${c.max}" step="${c.step}" value="${c.def}"
+           aria-label="${c.label}">
+    <span class="hint">${c.hint}</span>
+  </div>`).join("");
+CTLS.forEach(c=>{
+  const el=document.getElementById("c-"+c.k);
+  el.addEventListener("input",()=>{P[c.k]=parseFloat(el.value); draw();});
+});
+function setStaff(v){staff=v;draw();}
+function reset(){CTLS.forEach(c=>{P[c.k]=c.def;document.getElementById("c-"+c.k).value=c.def;});staff=true;draw();}
+function share(){
+  const q=CTLS.map(c=>c.k+"="+P[c.k]).join("&")+"&staff="+(staff?1:0)+"&s="+picked;
+  const url=location.origin+location.pathname+"#"+q;
+  navigator.clipboard?.writeText(url).then(()=>{
+    const b=document.getElementById("shareBtn"); b.textContent="Link copied";
+    setTimeout(()=>b.textContent="Copy link with these numbers",2000);
+  },()=>{});
+  location.hash=q;
+}
+(function fromHash(){
+  if(!location.hash) return;
+  new URLSearchParams(location.hash.slice(1)).forEach((v,k)=>{
+    if(k==="staff") staff=v==="1"; else if(k==="s") picked=+v;
+    else if(k in P){P[k]=parseFloat(v); const el=document.getElementById("c-"+k); if(el) el.value=v;}
+  });
+})();
+
+/* ── charts ───────────────────────────────────────────── */
+function chart(el,rows,mode){
+  const W=460,H=210,L=52,R=12,T=14,B=26;
+  const iw=W-L-R, ih=H-T-B;
+  const vals = mode==="rev" ? rows.map(r=>r.revenue) : rows.map(r=>r.cum);
+  const hi=Math.max(...vals,1), lo=mode==="rev"?0:Math.min(...vals,0);
+  const span=(hi-lo)||1;
+  const y=v=>T+ih-((v-lo)/span)*ih;
+  const x=i=>L+(i/35)*iw;
+  const ticks=4, out=[];
+
+  for(let t=0;t<=ticks;t++){
+    const v=lo+(span*t/ticks), yy=y(v);
+    out.push(`<line x1="${L}" y1="${yy.toFixed(1)}" x2="${W-R}" y2="${yy.toFixed(1)}" stroke="var(--line-soft)" stroke-width="1"/>`);
+    out.push(`<text x="${L-8}" y="${(yy+3.5).toFixed(1)}" text-anchor="end" font-size="10"
+      font-family="'IBM Plex Mono',monospace" fill="var(--steel)">${compact(v)}</text>`);
+  }
+  if(mode==="cash" && lo<0){
+    out.push(`<line x1="${L}" y1="${y(0).toFixed(1)}" x2="${W-R}" y2="${y(0).toFixed(1)}" stroke="var(--steel)" stroke-width="1.2" stroke-dasharray="3 3"/>`);
+  }
+  if(mode==="rev"){
+    const bw=iw/36*0.72;
+    rows.forEach((r,i)=>{
+      const xs=x(i)-bw/2;
+      const hSub=((r.revSub)/span)*ih, hMat=((r.revMatch)/span)*ih;
+      out.push(`<rect class="bar" x="${xs.toFixed(1)}" y="${(y(r.revenue)).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(hMat,0).toFixed(1)}" fill="var(--hv)"/>`);
+      out.push(`<rect class="bar" x="${xs.toFixed(1)}" y="${(y(r.revSub)).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(hSub,0).toFixed(1)}" fill="var(--ink)"/>`);
+    });
+  }else{
+    const d=rows.map((r,i)=>`${i?"L":"M"}${x(i).toFixed(1)},${y(r.cum).toFixed(1)}`).join(" ");
+    out.push(`<path class="ln" d="${d}" fill="none" stroke="var(--hv)" stroke-width="2.4" stroke-linejoin="round"/>`);
+    const lastR=rows[35];
+    out.push(`<circle cx="${x(35).toFixed(1)}" cy="${y(lastR.cum).toFixed(1)}" r="4" fill="var(--hv)"/>`);
+    const tr=rows.reduce((a,r)=>r.cum<a.cum?r:a);
+    out.push(`<circle cx="${x(tr.m-1).toFixed(1)}" cy="${y(tr.cum).toFixed(1)}" r="3.5" fill="none" stroke="var(--warn)" stroke-width="2"/>`);
+  }
+  // first and last labels anchor inward so they stay inside the viewBox
+  [[0,"start"],[11,"middle"],[23,"middle"],[35,"end"]].forEach(([i,anchor])=>{
+    out.push(`<text x="${x(i).toFixed(1)}" y="${H-8}" text-anchor="${anchor}" font-size="10"
+      font-family="'IBM Plex Mono',monospace" fill="var(--steel)">m${i+1}</text>`);
+  });
+  el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${mode==="rev"?"Monthly revenue over 36 months":"Cumulative cash over 36 months"}">${out.join("")}</svg>`;
+}
+
+/* ── render ───────────────────────────────────────────── */
+function draw(){
+  CTLS.forEach(c=>document.getElementById("v-"+c.k).textContent=c.fmt(P[c.k]));
+  document.getElementById("t-founders").className=staff?"":"on";
+  document.getElementById("t-staff").className=staff?"on":"";
+
+  const R=SCEN.map(run);
+
+  document.getElementById("scen").innerHTML=SCEN.map((s,i)=>{
+    const r=R[i], ok=r.ltvcac>=3, mid=r.ltvcac>=1;
+    const v = r.last.beforeCac>0 && ok
+      ? ["v-good","Works. The customers you have cover costs, and each one pays back what it cost to win them "+r.ltvcac.toFixed(1)+"×."]
+      : r.last.beforeCac>0
+      ? ["v-mid","Survives but doesn't compound — winning a boss costs more than he's worth over his life ("+r.ltvcac.toFixed(1)+"× against a 3× bar)."]
+      : ["v-bad","Loses money even if you stop spending on growth entirely. Not a business at these numbers."];
+    return `<div class="col ${i===picked?"pick":""}" onclick="pick(${i})" role="button" tabindex="0"
+              onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();pick(${i})}">
+      <h3><span class="dot" style="background:${s.colour}"></span>${s.name}</h3>
+      <div class="tag">${s.tag}</div>
+      <div class="hero-fig">
+        <span class="k">Revenue, month 36</span>
+        <span class="n">${money(r.last.revenue)}</span>
+      </div>
+      <div class="figs">
+        <div class="fig"><span class="k">Bosses on board</span><span class="n">${Math.round(r.last.bosses).toLocaleString("en-AU")}</span></div>
+        <div class="fig"><span class="k">Year 3 revenue</span><span class="n">${money(r.y3)}</span></div>
+        <div class="fig"><span class="k">Year 3 profit</span><span class="n ${r.y3p>=0?"pos":"neg"}">${money(r.y3p)}</span></div>
+        <div class="fig"><span class="k">Revenue per boss</span><span class="n">${money2(r.arpu)}</span></div>
+        <div class="fig"><span class="k">Gross margin</span><span class="n">${(r.gm*100).toFixed(0)}%</span></div>
+        <div class="fig"><span class="k">Lifetime value</span><span class="n">${money(r.ltv)}</span></div>
+        <div class="fig"><span class="k">Value ÷ cost to win</span><span class="n ${r.ltvcac>=3?"pos":r.ltvcac>=1?"":"neg"}">${r.ltvcac.toFixed(1)}×</span></div>
+        <div class="fig"><span class="k">Cash you must fund</span><span class="n neg">${money(r.trough)}</span></div>
+        <div class="fig"><span class="k">Pays for itself at</span><span class="n">${r.breakeven?r.breakeven.toLocaleString("en-AU")+" bosses":"never"}</span></div>
+      </div>
+      <div class="verdict ${v[0]}">${v[1]}</div>
+    </div>`;
+  }).join("");
+
+  const r=R[picked], s=SCEN[picked];
+  document.getElementById("chartTitle").textContent=s.name+" · month by month";
+  chart(document.getElementById("chartRev"), r.rows, "rev");
+  chart(document.getElementById("chartCash"), r.rows, "cash");
+
+  const L=r.last;
+  document.getElementById("tdLede").textContent=
+    `Month 36 of the ${s.name} case — ${Math.round(L.bosses).toLocaleString("en-AU")} bosses, ${Math.round(L.matches).toLocaleString("en-AU")} matches, ${Math.round(L.subs).toLocaleString("en-AU")} paying the subscription.`;
+  const per=v=>L.bosses?money2(v/L.bosses):"–";
+  document.getElementById("teardown").innerHTML=`
+    <caption>Every line for one month. "Per boss" is the same figure divided by the ${Math.round(L.bosses).toLocaleString("en-AU")} bosses on board.</caption>
+    <thead><tr><th>Line</th><th>Month 36</th><th>Per boss</th><th>Share of revenue</th></tr></thead>
+    <tbody>
+      <tr><td>Subscription</td><td>${money(L.revSub)}</td><td>${per(L.revSub)}</td><td>${(L.revSub/L.revenue*100).toFixed(0)}%</td></tr>
+      <tr><td>Match fees</td><td>${money(L.revMatch)}</td><td>${per(L.revMatch)}</td><td>${(L.revMatch/L.revenue*100).toFixed(0)}%</td></tr>
+      <tr class="total"><td>Revenue</td><td>${money(L.revenue)}</td><td>${per(L.revenue)}</td><td>100%</td></tr>
+      <tr class="sub"><td>SMS</td><td>−${money(L.sms).replace("$","$")}</td><td>${per(L.sms)}</td><td>${(L.sms/L.revenue*100).toFixed(1)}%</td></tr>
+      <tr class="sub"><td>Card processing</td><td>−${money(L.processing)}</td><td>${per(L.processing)}</td><td>${(L.processing/L.revenue*100).toFixed(1)}%</td></tr>
+      <tr class="sub"><td>Support time</td><td>−${money(L.support)}</td><td>${per(L.support)}</td><td>${(L.support/L.revenue*100).toFixed(1)}%</td></tr>
+      <tr class="sub"><td>Hosting, insurance, software${staff?", staff":""}</td><td>−${money(L.fixed)}</td><td>${per(L.fixed)}</td><td>${(L.fixed/L.revenue*100).toFixed(1)}%</td></tr>
+      <tr class="sub"><td>Winning new bosses</td><td>−${money(L.acq)}</td><td>${per(L.acq)}</td><td>${(L.acq/L.revenue*100).toFixed(1)}%</td></tr>
+      <tr class="total"><td>Profit that month</td><td class="${L.profit>=0?"pos":"neg"}">${money(L.profit)}</td><td class="${L.profit>=0?"pos":"neg"}">${per(L.profit)}</td><td>${(L.profit/L.revenue*100).toFixed(0)}%</td></tr>
+      <tr><td style="color:var(--steel)">…if you stopped chasing growth</td><td class="${L.beforeCac>=0?"pos":"neg"}">${money(L.beforeCac)}</td><td class="${L.beforeCac>=0?"pos":"neg"}">${per(L.beforeCac)}</td><td>${(L.beforeCac/L.revenue*100).toFixed(0)}%</td></tr>
+    </tbody>`;
+
+  document.getElementById("breakeven").innerHTML=`
+    <thead><tr><th>Scenario</th><th>Bosses needed</th><th>Revenue at that point</th><th>Reached in month</th><th>Reaches it?</th></tr></thead>
+    <tbody>${SCEN.map((sc,i)=>{
+      const rr=R[i], be=rr.breakeven;
+      const hit=be?rr.rows.find(x=>x.bosses>=be):null;
+      const revAt=be?(be*sc.mpb*P.mpbX*(P.fee/GST)+be*Math.min(1,sc.take*P.takeX)*(P.sub/GST)):0;
+      return `<tr><td>${sc.name}</td>
+        <td>${be?be.toLocaleString("en-AU"):"–"}</td>
+        <td>${be?money(revAt)+"/mo":"–"}</td>
+        <td>${hit?"m"+hit.m:"—"}</td>
+        <td class="${hit?"pos":"neg"}">${hit?"yes":"not in 36 months"}</td></tr>`;
+    }).join("")}</tbody>`;
+}
+function pick(i){picked=i;draw();}
+draw();
+</script>
