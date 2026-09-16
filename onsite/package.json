@@ -11,6 +11,8 @@
     "qpay:ping": "tsx scripts/qpay-ping.ts",
     "whitecard:ping": "tsx scripts/whitecard-ping.ts",
     "beta:invite": "tsx scripts/beta-invite.ts",
+    "billing:list": "tsx scripts/billing.ts list",
+    "billing:paid": "tsx scripts/billing.ts paid",
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",

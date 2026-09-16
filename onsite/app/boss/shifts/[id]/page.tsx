@@ -7,6 +7,7 @@ import { Row, Say, Section, bookingWords } from "@/components/ui";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { CallLink } from "@/components/CallLink";
 import { StatusPill } from "@/components/StatusPill";
+import { IntroFeeNote } from "@/components/IntroFeeNote";
 import { approveHours, cancelShift, cancelPost, removeBooking, widenSearch, sameAgainTomorrow, logCall } from "@/actions/boss";
 import { fillWords, linesInWords } from "@/lib/posts";
 import { isUuid } from "@/lib/validate";
@@ -137,6 +138,7 @@ export default async function LiveShift({ params }: { params: Promise<{ id: stri
                       <div className="text-lg">hours</div>
                     </div>
                     <button className="btn-primary">Approve and record it</button>
+                    <IntroFeeNote bossId={u.id} workerId={b.worker_id} workerName={b.name} />
                     <div className="text-sm text-steel">The worker sees this number, what they recorded, and the reason.</div>
                   </form>
                 );

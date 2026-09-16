@@ -46,6 +46,7 @@ export default async function Privacy() {
           <li>Your <b>company name</b> and, if you give it, your <b>ABN</b>.</li>
           <li>Your <b>sites</b>: name, <b>address and map pin</b>, and how many people each needs.</li>
           <li>The <b>shifts</b> you post (day, start, hours, rate, overtime terms, notes, weather stops), who you book, the hours you approve and whether you have marked them paid, your crew list with their rates, and anyone you block.</li>
+          <li>What you are billed: when your free trial ends, whether you are subscribed, which workers OnSite introduced you to and when you first approved their hours, and your <b>invoices</b> — number, dates, the lines on them (including the worker each match fee is for), the total, and whether they are paid. Your company name and ABN appear on them. <b>We never hold a card or any bank details</b>; nothing in OnSite charges anything.</li>
         </ul>
         <h3 className="font-bold pt-2">If you are a worker</h3>
         <ul className="list-disc pl-6 space-y-1">

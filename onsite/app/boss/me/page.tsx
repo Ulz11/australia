@@ -1,14 +1,17 @@
 import { sql } from "@/lib/db";
 import { requireRole } from "@/lib/session";
 import { Header, Page } from "@/components/Header";
-import { Big } from "@/components/ui";
+import { Big, Row } from "@/components/ui";
+import { statusWords } from "@/lib/subscription";
 import { logout } from "@/actions/auth";
 import { savedPushFingerprint } from "@/lib/alerts";
 import { AlertsToggle } from "@/components/AlertsToggle";
 export const dynamic = "force-dynamic";
 export default async function BossMe() {
   const u = await requireRole("boss");
-  const [b] = await sql`SELECT b.company, b.abn, st.approved_count, st.approve_hours_avg, st.pay_days_avg FROM bosses b LEFT JOIN boss_stats st ON st.boss_id = b.user_id WHERE b.user_id = ${u.id}`;
+  const [b] = await sql`SELECT b.company, b.abn, b.subscription_status AS status, b.trial_ends_at, b.period_ends_at,
+      st.approved_count, st.approve_hours_avg, st.pay_days_avg
+    FROM bosses b LEFT JOIN boss_stats st ON st.boss_id = b.user_id WHERE b.user_id = ${u.id}`;
   return (
     <>
       <Header title="Me" />
@@ -21,6 +24,8 @@ export default async function BossMe() {
           <Big n={b?.pay_days_avg != null ? `${b.pay_days_avg}d` : "—"} label="to pay" />
         </div>
         {process.env.VAPID_PUBLIC_KEY && <AlertsToggle publicKey={process.env.VAPID_PUBLIC_KEY} savedPush={await savedPushFingerprint(u.id)} role="boss" />}
+        {/* Billing lives on its own screen; this says where the boss stands without opening it. */}
+        <Row href="/boss/billing" title="Billing" sub={statusWords({ status: b?.status ?? "trialing", trial_ends_at: b?.trial_ends_at ?? null, period_ends_at: b?.period_ends_at ?? null }).title} />
         <div className="card space-y-2">
           <div className="text-lg font-bold">The deal, in plain words</div>
           <p>You are the employer for every shift you post. Casual, at the Award rate or more. Super goes on top. The worker keeps the same hours record you do. You pay them your usual way, then tap <b>Mark paid</b>.</p>

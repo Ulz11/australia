@@ -13,6 +13,7 @@ import { PUSH_COOKIE } from "@/lib/alerts";
 import { devShowOtpOn } from "@/lib/flags";
 import { BETA_REFUSAL, betaInviteOnly, mayRequestCode } from "@/lib/beta";
 import { PRIVACY_VERSION } from "@/lib/privacy";
+import { addMonths, trialEndFrom } from "@/lib/subscription";
 
 /** `refused: "invite_only"` marks the closed-beta refusal, so the mobile API can answer 403 instead of 429. */
 export type AuthState = { step: "phone" | "code"; phone?: string; error?: string; devCode?: string; refused?: "invite_only" };
@@ -142,7 +143,12 @@ export async function completeOnboarding(form: FormData) {
   if (role === "boss") {
     const company = String(form.get("company") || name).trim();
     const abn = String(form.get("abn") || "").replace(/\s/g, "") || null;
-    await sql`INSERT INTO bosses (user_id, company, abn) VALUES (${u.id}, ${company}, ${abn}) ON CONFLICT (user_id) DO UPDATE SET company = EXCLUDED.company, abn = EXCLUDED.abn`;
+    const trialEnd = trialEndFrom(new Date());
+    // The free trial starts the moment the account becomes a boss, and the subscription starts by
+    // itself when it runs out — both said plainly under the Boss choice on this screen.
+    await sql`INSERT INTO bosses (user_id, company, abn, trial_ends_at, subscription_status, period_started_at, period_ends_at)
+              VALUES (${u.id}, ${company}, ${abn}, ${trialEnd}, 'trialing', ${trialEnd}, ${addMonths(trialEnd, 1)})
+              ON CONFLICT (user_id) DO UPDATE SET company = EXCLUDED.company, abn = EXCLUDED.abn`;
     await createSession(u.id);
     redirect("/boss");
   } else {

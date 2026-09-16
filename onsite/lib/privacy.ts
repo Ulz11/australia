@@ -4,7 +4,7 @@
  * Change PRIVACY_VERSION whenever what the notice says changes: users.privacy_version records which
  * version someone agreed to (migration 008), so anyone who agreed to an older one can be asked again.
  */
-export const PRIVACY_VERSION = "2026-09-16";
+export const PRIVACY_VERSION = "2026-09-17";
 
 /**
  * Who to contact about privacy. Read from the environment when the page is requested (never baked in at

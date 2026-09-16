@@ -17,6 +17,14 @@ export type BookArgs = {
   agreed?: { rate: number | null; hours: number | null; start_time: string | null };
   /** who to tell and what to say; null = no notification */
   notify: { userId: string; kind: string; body: (day: string, site: string) => string } | null;
+  /**
+   * How OnSite put these two together, when it did: 'match' is a shift the worker found in the pool,
+   * 'offer' is a deal either side agreed to. That writes the introduction this booking may bill on
+   * (lib/invoicing.ts). A shift posted to one named worker — "Book again", "Same again tomorrow" —
+   * has direct_worker_id set and is never an introduction whatever is passed here: the boss already
+   * knew them. Leave it out for anything that isn't OnSite finding someone.
+   */
+  via?: "match" | "offer";
 };
 export type BookResult = { ok: true; day: string; site: string } | { ok: false; error: string };
 
@@ -41,12 +49,21 @@ export async function bookWorker(a: BookArgs): Promise<BookResult> {
     if (clash) return { ok: false, error: "You already have a shift that day." };
 
     const ag = a.agreed ?? { rate: null, hours: null, start_time: null };
-    await tx`
+    const [booking] = await tx<{ id: string }[]>`
       INSERT INTO bookings (shift_id, worker_id, agreed_rate, agreed_hours, agreed_start)
       VALUES (${a.shiftId}, ${a.workerId}, ${ag.rate}, ${ag.hours}, ${ag.start_time})
       ON CONFLICT (shift_id, worker_id) DO UPDATE SET status = 'accepted', created_at = now(),
         agreed_rate = EXCLUDED.agreed_rate, agreed_hours = EXCLUDED.agreed_hours, agreed_start = EXCLUDED.agreed_start,
-        clock_in_at = NULL, clock_out_at = NULL, hours_worked = NULL, hours_approved = NULL`;
+        clock_in_at = NULL, clock_out_at = NULL, hours_worked = NULL, hours_approved = NULL
+      RETURNING id`;
+    // OnSite found this worker for this boss: record the introduction the first time, in the same
+    // transaction as the booking. Nothing is charged here — the $2 lands only when the boss approves
+    // hours above zero (actions/boss.ts), and only ever once per pair.
+    if (a.via && !s.direct_worker_id)
+      await tx`
+        INSERT INTO introductions (boss_id, worker_id, via, first_booking_id)
+        VALUES (${s.boss_id}, ${a.workerId}, ${a.via}, ${booking.id})
+        ON CONFLICT (boss_id, worker_id) DO NOTHING`;
     await tx`INSERT INTO availability (worker_id, day, status) VALUES (${a.workerId}, ${s.day}, 'free')
              ON CONFLICT (worker_id, day) DO UPDATE SET status = 'free'`;
     if (s.taken + 1 >= s.spots) await tx`UPDATE shifts SET status = 'filled' WHERE id = ${a.shiftId}`;

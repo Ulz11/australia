@@ -8,10 +8,15 @@ import { payForShift } from "@/lib/rules";
 import { addDays, fmtDay, fmtRange, todayIso, weekStart } from "@/lib/util";
 import { markPaidMany } from "@/actions/boss";
 import { PaidToggle } from "./PaidToggle";
+import { Upsell } from "./Upsell";
+import { payToolsAllowed } from "@/lib/invoicing";
 export const dynamic = "force-dynamic";
 
 export default async function Pay({ searchParams }: { searchParams: Promise<{ week?: string }> }) {
   const u = await requireRole("boss");
+  // The pay run is the subscription. A lapsed boss gets the upsell instead — and keeps everything else.
+  const { allowed, boss } = await payToolsAllowed(u.id);
+  if (!allowed) return <><Header title="Pay" /><Page><Upsell boss={{ trial_ends_at: boss?.trial_ends_at ?? null }} /></Page></>;
   const { week } = await searchParams;
   const ws = weekStart(week || todayIso());
   const we = addDays(ws, 6);
