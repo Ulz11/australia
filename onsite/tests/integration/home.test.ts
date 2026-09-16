@@ -1,13 +1,13 @@
 /**
  * A worker's home is stored to about a kilometre, whatever the form sends — onboarding and Me both.
- * Real actions, real DB (needs DATABASE_URL). Own +614000092xx numbers, self-cleaning.
+ * Real actions, real DB (needs DATABASE_URL). Own +614000091xx numbers (92xx is posts.test.ts, 90xx session.test.ts), self-cleaning.
  */
 import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 import { completeOnboarding } from "@/actions/auth";
 import { updateMe } from "@/actions/worker";
 import { sql } from "@/lib/db";
 
-const PHONE = "+61400009211";
+const PHONE = "+61400009101";
 const fd = (o: Record<string, string>) => { const f = new FormData(); for (const [k, v] of Object.entries(o)) f.append(k, v); return f; };
 const home = async (id: string) =>
   (await sql`SELECT ST_Y(home::geometry) AS lat, ST_X(home::geometry) AS lng, home_label FROM workers WHERE user_id = ${id}`)[0];

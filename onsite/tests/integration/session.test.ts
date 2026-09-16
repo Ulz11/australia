@@ -1,6 +1,6 @@
 /**
  * Staying signed in, against a real DB (needs DATABASE_URL): year-long tokens, the cookie refresh route, the
- * app's refresh endpoint, the app's sign-in, and sign-out. Own +614000092xx numbers, self-cleaning.
+ * app's refresh endpoint, the app's sign-in, and sign-out. Own +614000090xx numbers (92xx is posts.test.ts, 91xx home.test.ts), self-cleaning.
  *
  * Route handlers run as plain functions here, so `next/headers` is a stand-in cookie jar: createSession and
  * logout write to it, and the refresh routes must not need it at all (they read the request, write the response).
@@ -21,7 +21,7 @@ import { POST as refreshCookie } from "@/app/api/session/refresh/route";
 import { POST as refreshApp } from "@/app/api/v1/auth/refresh/route";
 import { POST as verifyApp } from "@/app/api/v1/auth/verify/route";
 
-const PHONES = { boss: "+61400009201", gone: "+61400009202", worker: "+61400009203", code: "+61400009204" };
+const PHONES = { boss: "+61400009001", gone: "+61400009002", worker: "+61400009003", code: "+61400009004" };
 const DAY_MS = 24 * 60 * 60 * 1000;
 const YEAR_MS = 365 * DAY_MS;
 const ids: Record<string, string> = {};
@@ -171,7 +171,7 @@ describe.skipIf(!process.env.DATABASE_URL)("staying signed in", () => {
     await sql`INSERT INTO otp_codes (phone, code, expires_at, attempts, last_sent_at, sends, window_start)
               VALUES (${PHONES.code}, ${hashCode(PHONES.code, "246810")}, now() + interval '10 minutes', 0, now(), 1, now())`;
     const res = await verifyApp(new Request("http://localhost/api/v1/auth/verify", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ phone: "0400009204", code: "246810" }),
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ phone: "0400009004", code: "246810" }),
     }));
     expect(res.status).toBe(200);
     const b = await res.json();

@@ -2,7 +2,7 @@
  * One job post, several kinds of worker: createShift with lines, the posting limit counted per line, matching per line,
  * and "Cancel the whole job" — through the real actions against a real DB (needs DATABASE_URL).
  *
- * Everyone here is ours alone: +614000092xx bosses and workers (93xx beta, 94xx consent, 95xx recheck, 96xx licences,
+ * Everyone here is ours alone: +614000092xx bosses and workers (90xx session, 91xx home, 93xx beta, 94xx consent, 95xx recheck, 96xx licences,
  * 97xx–98xx otp, 99xx alerts/bugs), on sites at Broken Hill so no seeded worker is ever in range and every notification
  * is one of ours. Other files clear only their own bosses' posting limits, so the counts here are exact. Self-cleaning.
  */
