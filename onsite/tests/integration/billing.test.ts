@@ -254,8 +254,9 @@ describe.skipIf(!process.env.DATABASE_URL)("billing: introductions, match fees a
     // one match, billed while the trial was still running
     await sql`INSERT INTO introductions (boss_id, worker_id, via, billed_at) VALUES (${ids.trial}, ${ids.w8}, 'match', ${new Date(Date.now() - 3 * 60 * 60 * 1000)})`;
 
-    const counts = await closeBillingPeriods();
-    expect(counts.trials_ended).toBeGreaterThanOrEqual(1);
+    // Another test file may call the cron at the same moment (recheck.test.ts hits the route) and end this trial
+    // first; the sweep is idempotent, so assert the end state rather than which run got there.
+    await closeBillingPeriods();
 
     const b = await bossBilling(ids.trial);
     expect(b).toMatchObject({ subscription_status: "active" });
