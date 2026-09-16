@@ -9,7 +9,9 @@ import { fmtDay, todayIso } from "@/lib/util";
 import { bookWorker } from "@/lib/booking";
 import { isUuid, isDay, isTime, num, isLatLng } from "@/lib/validate";
 import { sendAlertsSoon } from "@/lib/alerts";
-import { hit, SHIFT_POSTS_PER_HOUR } from "@/lib/ratelimit";
+import { hit, refund, SHIFT_POSTS_PER_HOUR } from "@/lib/ratelimit";
+import { hasLines, readPostLines, type PostLine } from "@/lib/posts";
+import { randomUUID } from "node:crypto";
 
 export async function createProject(form: FormData) {
   const u = await requireRole("boss");
@@ -56,14 +58,40 @@ export async function createShift(form: FormData) {
   const ot_after = num(form.get("ot_after_hours"), 1, 14, 8);
   const ot_mult = ot_mode === "custom" ? num(form.get("ot_multiplier"), 1, 3, 1.5) : null;
   const allow_offers = String(form.get("allow_offers") ?? "1") !== "0";
-  // Only a post that would really go ahead spends a slot — every shift can buzz and text workers.
-  if (!(await hit(`shift-post:${u.id}`, SHIFT_POSTS_PER_HOUR, 3600))) return back("You've hit the limit for posting shifts this hour. Try again a bit later.");
-  const [s] = await sql`INSERT INTO shifts (project_id, boss_id, day, start_time, hours, spots, role, tickets_required, rate, note, direct_worker_id,
-      ot_mode, ot_after_hours, ot_multiplier, allow_offers)
-    VALUES (${project_id}, ${u.id}, ${day}, ${start_time}, ${hours}, ${direct ? 1 : spots}, ${role}, ${tickets}, ${rate}, ${note}, ${direct},
-      ${ot_mode}, ${ot_after}, ${ot_mult}, ${allow_offers}) RETURNING id`;
-  await runMatchingRound(s.id);
-  redirect(`/boss/shifts/${s.id}`);
+  // Who's needed. Booking one of your crew is one person, one role, one rate, as it always was. Otherwise the form
+  // sends one line per kind of worker ("2 × Carpenter, 1 × Forklift driver"); each line becomes its own shift.
+  let lines: PostLine[] = [{ role, spots: direct ? 1 : spots, rate, tickets }];
+  if (!direct && hasLines(form)) {
+    const read = readPostLines(form);
+    if (!read.ok) return back(read.error);
+    lines = read.lines;
+  }
+  // Only a post that would really go ahead spends a slot, one per line — every shift can buzz and text workers.
+  const key = `shift-post:${u.id}`;
+  if (!(await hit(key, SHIFT_POSTS_PER_HOUR, 3600, lines.length))) {
+    await refund(key, 3600, lines.length);   // refused, so it didn't happen: a smaller post may still fit
+    return back("You've hit the limit for posting shifts this hour. Try again a bit later.");
+  }
+  // Every line in one statement, sharing one post_id. created_at steps a microsecond per line so the boss screens
+  // list the lines in the order they were written.
+  let ids: string[];
+  try {
+    const rows = await sql<{ id: string; n: number }[]>`
+      INSERT INTO shifts (post_id, project_id, boss_id, day, start_time, hours, spots, role, tickets_required, rate, note, direct_worker_id,
+        ot_mode, ot_after_hours, ot_multiplier, allow_offers, created_at)
+      SELECT ${randomUUID()}::uuid, ${project_id}::uuid, ${u.id}::uuid, ${day}::date, ${start_time}::time, ${hours}::numeric, l.spots, l.role,
+        string_to_array(l.tickets, ','), l.rate, ${note}::text, ${direct}::uuid,
+        ${ot_mode}::text, ${ot_after}::numeric, ${ot_mult}::numeric, ${allow_offers}::boolean, now() + (l.n - 1) * interval '1 microsecond'
+      FROM unnest(${lines.map((l) => l.role)}::text[], ${lines.map((l) => l.spots)}::int[], ${lines.map((l) => l.rate)}::numeric[],
+                  ${lines.map((l) => l.tickets.join(","))}::text[]) WITH ORDINALITY AS l(role, spots, rate, tickets, n)
+      RETURNING id, (EXTRACT(MICROSECONDS FROM created_at - now()) + 1)::int AS n`;
+    ids = rows.sort((a, b) => a.n - b.n).map((r) => r.id);
+  } catch (e) {
+    await refund(key, 3600, lines.length);   // nothing was posted
+    throw e;
+  }
+  await Promise.all(ids.map((id) => runMatchingRound(id)));
+  redirect(`/boss/shifts/${ids[0]}`);
 }
 
 export async function cancelShift(id: string) {
@@ -80,6 +108,35 @@ export async function cancelShift(id: string) {
     )
     INSERT INTO notifications (user_id, shift_id, kind, body)
     SELECT worker_id, shift_id, 'cancelled', ${u.name} || ' cancelled the ' || to_char((SELECT day FROM s), 'Dy DD Mon') || ' shift.' FROM b
+    UNION ALL
+    SELECT worker_id, shift_id, 'cancelled', 'The shift you asked about was cancelled.' FROM o`;
+  sendAlertsSoon();
+  redirect("/boss");
+}
+
+/**
+ * "Cancel the whole job": every line of this shift's post that still needs workers, in one statement, with the same
+ * side effects as cancelShift for each. A line that's already full stays booked — cancelling it (and telling the
+ * people on it) is a decision about those people, made on its own page. Only ever the caller's own shifts.
+ */
+export async function cancelPost(shiftId: string) {
+  const u = await requireRole("boss");
+  if (!isUuid(shiftId)) redirect("/boss");
+  await sql`
+    WITH me AS (
+      SELECT id, post_id FROM shifts WHERE id = ${shiftId} AND boss_id = ${u.id}
+    ), s AS (
+      UPDATE shifts SET status = 'cancelled'
+      WHERE boss_id = ${u.id} AND status = 'open'
+        AND (id = (SELECT id FROM me) OR post_id = (SELECT post_id FROM me))
+      RETURNING id, day
+    ), b AS (
+      UPDATE bookings SET status = 'removed' WHERE shift_id IN (SELECT id FROM s) AND status IN ('accepted','clocked_in') RETURNING worker_id, shift_id
+    ), o AS (
+      UPDATE offers SET status = 'expired', responded_at = now() WHERE shift_id IN (SELECT id FROM s) AND status = 'pending' RETURNING worker_id, shift_id
+    )
+    INSERT INTO notifications (user_id, shift_id, kind, body)
+    SELECT b.worker_id, b.shift_id, 'cancelled', ${u.name} || ' cancelled the ' || to_char(s.day, 'Dy DD Mon') || ' shift.' FROM b JOIN s ON s.id = b.shift_id
     UNION ALL
     SELECT worker_id, shift_id, 'cancelled', 'The shift you asked about was cancelled.' FROM o`;
   sendAlertsSoon();

@@ -221,6 +221,7 @@ Credentials go in `.env` as `WHITE_CARD_API_KEY`, `WHITE_CARD_API_SECRET`, and t
 - Clock-in works anywhere; the record shows distance from site and time. Boss can edit hours before approving; the worker sees the edit, both numbers stay, and there's an *I disagree* button that tells the boss to call. No locking, no auto-penalties.
 - Matching notifies **3× the open spots**, ranked by show-up rate → worked-for-this-boss → distance, and widens every 20 minutes. A 2-person shift wakes up 6 phones.
 - Visa type is display-only. No ABN anywhere.
+- **One job, several kinds of worker.** "2 carpenters, 1 forklift driver, 3 labourers" is posted once but saved as one shift per kind of worker, sharing a `post_id` — each with its own role, count, licences and rate, and matched on its own (a forklift line only asks LF holders). Site, day, hours and overtime are set once for the job. Each line counts as a post against the hourly posting limit. Bosses see the lines together; *Cancel the whole job* calls off the lines still looking for workers, and full ones stay booked.
 
 ## Not in the MVP (on purpose)
 

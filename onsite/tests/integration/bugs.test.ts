@@ -26,7 +26,7 @@ describe.skipIf(!process.env.DATABASE_URL)("regressions from the strict review",
     await sql`DELETE FROM bookings b USING shifts s WHERE s.id = b.shift_id AND s.day >= CURRENT_DATE + 3 AND b.worker_id IN (${bat}, ${nima})`;
     await sql`DELETE FROM blocks WHERE boss_id = ${dave}`;
     await sql`DELETE FROM otp_codes WHERE phone = '+61400009999'`;
-    await sql`DELETE FROM rate_limits WHERE key LIKE 'shift-post:%'`;   // this file posts plenty of shifts as Dave
+    await sql`DELETE FROM rate_limits WHERE key = ${`shift-post:${dave}`}`;   // this file posts plenty of shifts as Dave (only his: posts.test counts its own bosses')
   });
   afterAll(async () => {
     if (made.length) await sql`DELETE FROM shifts WHERE id = ANY(${made})`;

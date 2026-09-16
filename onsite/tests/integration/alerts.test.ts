@@ -118,7 +118,7 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts reach the phone", () => {
                             ST_SetSRID(ST_MakePoint(151.155, -33.911),4326)::geography) RETURNING id`;
       return [u.id as string, p.id as string];
     })) as [string, string][];
-    await sql`DELETE FROM rate_limits WHERE key LIKE 'shift-post:%'`;
+    await sql`DELETE FROM rate_limits WHERE key IN (${`shift-post:${dave}`}, ${`shift-post:${other}`})`;   // ours only: posts.test counts its own bosses'
   });
 
   beforeEach(async () => {
@@ -134,7 +134,7 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts reach the phone", () => {
     if (made.length) await sql`DELETE FROM shifts WHERE id = ANY(${made})`;
     await sql`DELETE FROM push_subscriptions WHERE endpoint LIKE 'https://127.0.0.1:%'`;
     await sql`DELETE FROM notifications WHERE body LIKE 'alert-test%'`;
-    await sql`DELETE FROM rate_limits WHERE key LIKE 'sms:%' OR key LIKE 'shift-post:%'`;
+    await sql`DELETE FROM rate_limits WHERE key LIKE 'sms:%' OR key IN (${`shift-post:${dave}`}, ${`shift-post:${other}`})`;
     await sql`DELETE FROM users WHERE phone = ANY(${PEOPLE})`;
     process.env = env;
     await new Promise((r) => server.close(r));

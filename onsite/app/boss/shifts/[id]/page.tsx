@@ -3,10 +3,13 @@ import { notFound } from "next/navigation";
 import { sql } from "@/lib/db";
 import { requireRole } from "@/lib/session";
 import { Header, Page } from "@/components/Header";
-import { Say, Section, bookingWords } from "@/components/ui";
+import { Row, Say, Section, bookingWords } from "@/components/ui";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { CallLink } from "@/components/CallLink";
-import { approveHours, cancelShift, removeBooking, widenSearch, sameAgainTomorrow, logCall } from "@/actions/boss";
+import { StatusPill } from "@/components/StatusPill";
+import { approveHours, cancelShift, cancelPost, removeBooking, widenSearch, sameAgainTomorrow, logCall } from "@/actions/boss";
+import { fillWords, linesInWords } from "@/lib/posts";
+import { isUuid } from "@/lib/validate";
 import { fmtDay, fmtTime, km, initials, todayIso } from "@/lib/util";
 import { TICKETS } from "@/lib/award";
 import { clockInLooks, otInWords, weatherSuggestion, urgencyOf } from "@/lib/rules";
@@ -17,7 +20,8 @@ export const dynamic = "force-dynamic";
 export default async function LiveShift({ params }: { params: Promise<{ id: string }> }) {
   const u = await requireRole("boss");
   const { id } = await params;
-  const [[s], bookings] = await Promise.all([
+  if (!isUuid(id)) notFound();
+  const [[s], bookings, job] = await Promise.all([
     sql`SELECT s.*, p.name AS site, p.address,
           (SELECT COUNT(*) FROM notifications n WHERE n.shift_id = s.id AND n.kind = 'shift_match')::int AS notified
         FROM shifts s JOIN projects p ON p.id = s.project_id WHERE s.id = ${id} AND s.boss_id = ${u.id}`,
@@ -27,6 +31,11 @@ export default async function LiveShift({ params }: { params: Promise<{ id: stri
         FROM bookings b JOIN users us ON us.id = b.worker_id JOIN workers w ON w.user_id = b.worker_id
         LEFT JOIN worker_stats st ON st.worker_id = b.worker_id
         WHERE b.shift_id = ${id} AND b.status <> 'removed' ORDER BY b.created_at`,
+    // Every line of the job this shift was posted in (this one included); none for a shift that is its own post.
+    sql<{ id: string; role: string; spots: number; status: string; taken: number }[]>`SELECT x.id, x.role, x.spots, x.status,
+          (SELECT COUNT(*) FROM bookings b WHERE b.shift_id = x.id AND b.status NOT IN ('removed','cancelled'))::int AS taken
+        FROM shifts me JOIN shifts x ON x.post_id = me.post_id AND x.boss_id = me.boss_id
+        WHERE me.id = ${id} AND me.boss_id = ${u.id} ORDER BY x.created_at`,
   ]);
   if (!s) notFound();
   const today = todayIso();
@@ -34,6 +43,9 @@ export default async function LiveShift({ params }: { params: Promise<{ id: stri
   const open = s.status === "open" && taken < s.spots;
   const start = fmtTime(s.start_time);
   const when = s.day === today ? "Today" : fmtDay(s.day);
+  const others = job.filter((l) => l.id !== s.id);
+  const stillLooking = job.filter((l) => l.status === "open"), full = job.filter((l) => l.status === "filled");
+  const lineState = (l: (typeof job)[number]) => (l.status === "cancelled" ? "cancelled" : s.day < today ? "closed" : l.taken >= l.spots ? "filled" : l.status);
 
   return (
     <>
@@ -44,6 +56,7 @@ export default async function LiveShift({ params }: { params: Promise<{ id: stri
           <div className="text-steel">{s.address}</div>
           <div className="mt-3 text-lg"><b>{s.spots} × {s.role}</b> · {Number(s.hours)} hours · <b className="num">${Number(s.rate).toFixed(2)}/h</b></div>
           <div className="text-steel">Needs: {s.tickets_required.map((t: string) => TICKETS[t] ?? t).join(", ")}{s.note ? ` · “${s.note}”` : ""}</div>
+          {others.length > 0 && <div className="text-steel mt-1">Part of one job: {linesInWords(job)}</div>}
           <div className="mt-2 rounded-xl bg-site px-3 py-2">
             <div className="text-sm font-bold">Overtime, agreed when you posted</div>
             <div className="text-sm text-steel">{otInWords({ ot_mode: s.ot_mode, ot_after_hours: s.ot_after_hours, ot_multiplier: s.ot_multiplier }, Number(s.rate))}</div>
@@ -138,8 +151,28 @@ export default async function LiveShift({ params }: { params: Promise<{ id: stri
           );
         })}
 
+        {others.length > 0 && (
+          <>
+            <Section title="The rest of this job" hint={`Posted together for ${fmtDay(s.day)}, ${start}. Tap one to see who's on it.`} />
+            <div className="space-y-2">
+              {others.map((l) => (
+                <Row key={l.id} href={`/boss/shifts/${l.id}`} title={`${l.spots} × ${l.role}`} sub={fillWords(l.taken, l.spots)} right={<StatusPill s={lineState(l)} />} />
+              ))}
+            </div>
+          </>
+        )}
+
         {s.status !== "cancelled" && s.day >= today && (
-          <ConfirmButton action={cancelShift.bind(null, s.id)} msg="Cancel this shift? Workers who said yes will be told.">Cancel this shift</ConfirmButton>
+          <ConfirmButton action={cancelShift.bind(null, s.id)} msg="Cancel this shift? Workers who said yes will be told.">
+            {others.length > 0 ? `Cancel just ${s.spots} × ${s.role}` : "Cancel this shift"}
+          </ConfirmButton>
+        )}
+        {others.length > 0 && stillLooking.length > 0 && s.day >= today && (
+          <ConfirmButton action={cancelPost.bind(null, s.id)}
+            msg={`Cancel the whole job? That calls off ${linesInWords(stillLooking)}, and anyone who said yes is told.${full.length > 0
+              ? ` ${linesInWords(full)} ${full.length > 1 ? "are" : "is"} already full and stays booked — cancel that on its own page.` : ""}`}>
+            Cancel the whole job
+          </ConfirmButton>
         )}
       </Page>
     </>
