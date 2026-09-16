@@ -5,6 +5,7 @@ import { sql } from "@/lib/db";
 import { createSession, destroySession, getUser, FRAME_COOKIES } from "@/lib/session";
 import { normalisePhone, sendSms } from "@/lib/sms";
 import { isLatLng } from "@/lib/validate";
+import { pinFor } from "@/lib/place";
 import { OTP, hashCode, inviteCode, newCode, phoneAllowed } from "@/lib/otp";
 import { clientIp, hit, refund } from "@/lib/ratelimit";
 import { verifyOtp } from "@/lib/otpVerify";
@@ -145,7 +146,7 @@ export async function completeOnboarding(form: FormData) {
     await createSession(u.id);
     redirect("/boss");
   } else {
-    const lat = Number(form.get("lat")), lng = Number(form.get("lng"));
+    const [lng, lat] = pinFor(Number(form.get("lng")), Number(form.get("lat")), "suburb");   // a home is kept to ~1 km, whatever the form sent
     const label = String(form.get("home_label") || "");
     const invite = String(form.get("invite") || "").trim().toUpperCase();
     const inviter = invite ? (await sql`SELECT user_id FROM workers WHERE invite_code = ${invite}`)[0]?.user_id ?? null : null;

@@ -13,7 +13,7 @@ export function MeForm({ name, radius, visa, home }: { name: string; radius: num
         <input type="range" name="radius_km" min={5} max={100} step={5} value={r} onChange={(e) => setR(Number(e.target.value))} className="w-full h-3 accent-[#FF7A00]" />
       </Field>
       <Field label="Where you live">
-        {editHome ? <AddressPin initial={home} /> : (
+        {editHome ? <AddressPin initial={home} precision="suburb" /> : (
           <div className="flex items-center justify-between gap-2"><div className="text-lg">{home?.label || "Pinned on the map"}</div><button type="button" className="btn-ghost btn-sm" onClick={() => setEditHome(true)}>Change</button></div>
         )}
       </Field>

@@ -28,7 +28,7 @@ export function RoleForm({ invite, defaultRole, error }: { invite?: string; defa
         </>
       ) : (
         <>
-          <Field label="Where do you live?" hint="Type your suburb and press Find. We only show shifts near you."><AddressPin /></Field>
+          <Field label="Where do you live?" hint="Type your suburb and press Find, or tap Use my location. We only show shifts near you."><AddressPin precision="suburb" /></Field>
           <Field label="Got an invite code from a mate? (optional)"><input name="invite" className="input font-mono uppercase" defaultValue={invite ?? ""} placeholder="ABC123" /></Field>
         </>
       )}

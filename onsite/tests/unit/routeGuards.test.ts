@@ -55,3 +55,41 @@ describe("signed-in screens guard themselves", () => {
     }
   });
 });
+
+/**
+ * Staying signed in adds two routes outside the signed-in folders (lib/session.ts). Nothing in front of them
+ * checks anything either, so each must verify the token — and that its user still exists — before it does anything.
+ */
+describe("the session refresh routes guard themselves", () => {
+  const ROUTES = ["app/api/session/refresh/route.ts", "app/api/v1/auth/refresh/route.ts"];
+  const firstStatement = (src: string) => {
+    const body = src.slice(src.indexOf("export async function POST"));
+    return body.slice(body.indexOf("{") + 1).trimStart().split("\n")[0];
+  };
+
+  it("both verify the token first and answer a bad one with 401", () => {
+    for (const f of ROUTES) {
+      const src = fs.readFileSync(f, "utf8");
+      expect(firstStatement(src), f).toMatch(/^const r = await renewSession\(/);
+      expect(src, f).toMatch(/if \(!r\)/);
+      expect(src, f).toMatch(/401/);
+    }
+  });
+
+  it("the cookie route reads only the session cookie — never a frame cookie, never getUser (which prefers frames)", () => {
+    const src = fs.readFileSync("app/api/session/refresh/route.ts", "utf8");
+    expect(firstStatement(src)).toBe("const r = await renewSession(req.cookies.get(SESSION_COOKIE)?.value);");
+    expect(src).not.toMatch(/FRAME_COOKIES|onsite_frame|getUser|getApiUser|next\/headers/);
+  });
+
+  it("the app's route takes a bearer token only — no cookie fallback", () => {
+    const src = fs.readFileSync("app/api/v1/auth/refresh/route.ts", "utf8");
+    expect(firstStatement(src)).toBe(`const r = await renewSession(bearerToken(req.headers.get("authorization")), 0);`);
+    expect(src).not.toMatch(/\bcookies\b|getUser|getApiUser|next\/headers/);
+  });
+
+  it("the boss and worker layouts both mount the refresher", () => {
+    for (const f of ["app/boss/layout.tsx", "app/worker/layout.tsx"])
+      expect(fs.readFileSync(f, "utf8"), f).toMatch(/<SessionRefresh \/>/);
+  });
+});

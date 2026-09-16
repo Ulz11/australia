@@ -49,7 +49,7 @@ export default async function Privacy() {
         </ul>
         <h3 className="font-bold pt-2">If you are a worker</h3>
         <ul className="list-disc pl-6 space-y-1">
-          <li><b>Where you live</b> — the map pin and place name you choose — and how far you will travel, so we only offer shifts near you.</li>
+          <li><b>Where you live</b> — the place name you choose and a map pin kept to about a kilometre, not your exact spot — and how far you will travel, so we only offer shifts near you.</li>
           <li>The days you mark free or busy.</li>
           <li>Your profile if you fill it in: <b>trades, languages, years of experience, a few words about you, and a photo</b>.</li>
           <li>Your <b>visa type</b>, if you give it.</li>
@@ -78,7 +78,7 @@ export default async function Privacy() {
             : <li>No text message service is switched on yet, so nothing is sent to one.</li>}
           <li><b>Apple, Google, Mozilla and Microsoft push services</b> (whichever your browser uses): an encrypted alert for your phone, only if you turned alerts on. They pass it on but cannot read it.</li>
           <li><b>SafeWork NSW</b> (through the NSW Government's API): a NSW White Card number, to check the card is real and current. Nothing else about you is sent.</li>
-          <li><b>OpenStreetMap</b>: map pictures and the addresses you type into a search box. Your browser asks OpenStreetMap directly; we do not send them anything.</li>
+          <li><b>OpenStreetMap</b>: map pictures, the addresses you type into a search box, and — when you tap <b>Use my location</b> — where you are, to turn it into an address. Your browser asks OpenStreetMap directly; we do not send them anything.</li>
           <li><b>Google Fonts</b>: your browser downloads the app's lettering from Google, which sees your internet address but nothing about your account.</li>
         </ul>
         <p>We do not sell your information or use it for advertising.</p>

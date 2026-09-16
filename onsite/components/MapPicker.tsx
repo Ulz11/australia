@@ -2,6 +2,7 @@
 import { useEffect, useRef } from "react";
 import { Map as MapLibreMap, Marker, NavigationControl, getVersion, setWorkerUrl, type MapMouseEvent, type StyleSpecification } from "maplibre-gl";
 import { escapeHtml } from "@/lib/validate";
+import { placeLabel, searchLabel, type NominatimPlace, type Precision } from "@/lib/place";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 /** The tile worker lives in public/maplibre/<version>/ (copied by scripts/copy-maplibre-worker.mjs) — bundlers can't locate it. */
@@ -17,13 +18,15 @@ export type Pin = { id: string; lat: number; lng: number; label?: string; count?
 
 /**
  * One map component for every screen: pick a point (onPick), show pins, optional radius circle.
+ * `center` and `zoom` only place the camera at the start; pass a new `focus` object to move it later
+ * (a search result, "Use my location").
  */
 export function MapView({
-  center, zoom = 12, pins = [], radiusKm, onPick, onPinClick, picked, className = "h-64",
+  center, zoom = 12, pins = [], radiusKm, onPick, onPinClick, picked, focus, className = "h-64",
 }: {
   center: [number, number]; zoom?: number; pins?: Pin[]; radiusKm?: number;
   onPick?: (lng: number, lat: number) => void; onPinClick?: (id: string) => void;
-  picked?: [number, number] | null; className?: string;
+  picked?: [number, number] | null; focus?: { center: [number, number]; zoom: number } | null; className?: string;
 }) {
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
@@ -73,6 +76,10 @@ export function MapView({
     }
   }, [picked]);
 
+  useEffect(() => {
+    if (focus) map.current?.easeTo({ center: focus.center, zoom: focus.zoom });
+  }, [focus]);
+
   return <div ref={el} className={`w-full rounded-2xl overflow-hidden border border-line ${className}`} />;
 }
 
@@ -85,10 +92,17 @@ function circle([lng, lat]: [number, number], km: number) {
   return { type: "Feature" as const, geometry: { type: "Polygon" as const, coordinates: [pts] }, properties: {} };
 }
 
-/** Free geocoder (Nominatim). Australia-biased. Be polite: 1 req/s. */
-export async function geocode(q: string): Promise<{ lat: number; lng: number; label: string } | null> {
-  const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=au&q=${encodeURIComponent(q)}`, { headers: { "Accept-Language": "en" } });
-  const j = await r.json();
+/** Free geocoder (Nominatim). Australia-biased. Be polite: 1 req/s. The label follows the precision (lib/place.ts). */
+export async function geocode(q: string, precision: Precision = "exact"): Promise<{ lat: number; lng: number; label: string } | null> {
+  const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=au&addressdetails=1&q=${encodeURIComponent(q)}`, { headers: { "Accept-Language": "en" } });
+  const j: NominatimPlace[] = await r.json();
   if (!j[0]) return null;
-  return { lat: Number(j[0].lat), lng: Number(j[0].lon), label: j[0].display_name.split(",").slice(0, 3).join(",") };
+  return { lat: Number(j[0].lat), lng: Number(j[0].lon), label: searchLabel(j[0], precision) };
+}
+
+/** The other way (Nominatim reverse): a name for a point — a street address, or only the suburb. One request per call. */
+export async function reverseGeocode(lat: number, lng: number, precision: Precision): Promise<string | null> {
+  const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`, { headers: { "Accept-Language": "en" } });
+  if (!r.ok) return null;
+  return placeLabel(await r.json(), precision);
 }

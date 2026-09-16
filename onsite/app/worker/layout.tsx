@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { requireRole } from "@/lib/session";
 import { sql } from "@/lib/db";
 import { TabBar } from "@/components/TabBar";
+import { SessionRefresh } from "@/components/SessionRefresh";
 
 const tabs = (matches = 0, live = 0) => [
   { href: "/worker", label: "Calendar", icon: "📅", badge: matches },
@@ -23,6 +24,7 @@ export default async function WorkerLayout({ children }: { children: React.React
   return (
     <>
       {children}
+      <SessionRefresh />
       <Suspense fallback={<TabBar tabs={tabs()} />}><Tabs userId={u.id} /></Suspense>
     </>
   );

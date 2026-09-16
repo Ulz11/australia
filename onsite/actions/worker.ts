@@ -7,6 +7,7 @@ import { fmtDay, todayIso, addDays } from "@/lib/util";
 import { bookWorker, recomputeTickets } from "@/lib/booking";
 import { sendAlertsSoon } from "@/lib/alerts";
 import { isUuid, isDay, num, isLatLng } from "@/lib/validate";
+import { pinFor } from "@/lib/place";
 
 export async function setAvailability(day: string, status: "free" | "busy") {
   const u = await requireRole("worker");
@@ -119,7 +120,7 @@ export async function updateMe(form: FormData) {
   const u = await requireRole("worker");
   const radius = num(form.get("radius_km"), 5, 100, 25);
   const visa = String(form.get("visa_type") || "").slice(0, 40) || null;
-  const lat = Number(form.get("lat")), lng = Number(form.get("lng"));
+  const [lng, lat] = pinFor(Number(form.get("lng")), Number(form.get("lat")), "suburb");   // a home is kept to ~1 km, whatever the form sent
   const label = String(form.get("home_label") || "").slice(0, 200);
   const hasPin = isLatLng(lat, lng);
   // Cards live in the licences table now — this form must never touch workers.tickets.

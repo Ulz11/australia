@@ -1,6 +1,6 @@
 import { sql } from "@/lib/db";
 import { verifyOtp } from "@/lib/otpVerify";
-import { signSession } from "@/lib/session";
+import { signSession, tokenExpiresAt } from "@/lib/session";
 import { clientIp } from "@/lib/ratelimit";
 import { normalisePhone } from "@/lib/sms";
 import { body, fail, json, preflight } from "@/lib/apiJson";
@@ -28,7 +28,7 @@ export async function POST(req: Request) {
 
   return json(req, {
     token,
-    expires_at: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString(),
+    expires_at: tokenExpiresAt(token).toISOString(),                  // a year; renew at POST /api/v1/auth/refresh
     user: { id: u.id, phone: u.phone, name: u.name, role: u.role, lang: u.lang },
     next,
     invite: next === "onboarding" && invite ? invite : null,
