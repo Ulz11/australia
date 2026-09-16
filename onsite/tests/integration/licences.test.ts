@@ -4,7 +4,8 @@
  * The form is the one door to a live government register: signed in, one worker, no CAPTCHA.
  * Without a cap it walks card numbers. Two caps guard it — ten saves an hour per worker, and the
  * whole app's WHITECARD_CHECKS_PER_DAY calls at the register — and both are counted in the same
- * `rate_limits` table. Runs the real action against a real DB (needs DATABASE_URL), on its own
+ * `rate_limits` table — as is the app-wide pause after a register failure, which this file also owns
+ * (other files stub it). Runs the real action against a real DB (needs DATABASE_URL), on its own
  * +614000096xx fixture workers, and cleans up after itself. The register is always stubbed: no
  * test in this repo may spend a real call against a 2,500-a-month quota.
  */
@@ -13,12 +14,15 @@ import { saveLicence } from "@/actions/worker";
 import { sql } from "@/lib/db";
 import { LICENCE_SAVES_PER_HOUR } from "@/lib/ratelimit";
 import { resetWhitecardToken, whitecardChecksPerDay } from "@/lib/whitecard";
+import { registerPausedUntil, REGISTER_PAUSE_MIN } from "@/lib/licenceCheck";
 
 const PHONE = "+61400009601";
 const MATE_PHONE = "+61400009602";
 const NAME = "Test Fixture";
 /** The app-wide daily budget for register calls. This file owns it; everything else stays off it. */
 const CHECKS = "whitecard:all";
+/** The app-wide pause a failed register call starts. This file owns the real row too. */
+const PAUSED = "whitecard:paused";
 const fd = (o: Record<string, string>) => { const f = new FormData(); for (const [k, v] of Object.entries(o)) f.append(k, v); return f; };
 /** A VIC card: saved and queued for a human, so the cap can be spent without asking NSW anything. */
 const save = (number: string, over: Record<string, string> = {}) =>
@@ -70,13 +74,13 @@ describe.skipIf(!process.env.DATABASE_URL)("saving a card", () => {
   beforeEach(async () => {
     resetWhitecardToken();                                          // a token one test cached must not hide another's login call
     process.env.TEST_USER_ID = worker;
-    await sql`DELETE FROM rate_limits WHERE key LIKE 'licence-save:%'`;
+    await sql`DELETE FROM rate_limits WHERE key LIKE 'licence-save:%' OR key = ${PAUSED}`;
   });
   afterEach(async () => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
-    await sql`DELETE FROM rate_limits WHERE key = ${CHECKS}`;       // a shared counter: never leave ours behind
+    await sql`DELETE FROM rate_limits WHERE key IN (${CHECKS}, ${PAUSED})`;   // shared rows: never leave ours behind
   });
   afterAll(async () => {
     await clean();
@@ -192,6 +196,44 @@ describe.skipIf(!process.env.DATABASE_URL)("saving a card", () => {
     expect(await save("CIC1765244", { issued_state: "NSW" })).toMatchObject({ ok: true, status: "not_found" });
     expect(fetchSpy).toHaveBeenCalled();
     expect(quiet).toHaveBeenCalledTimes(1);                         // logged once, for the one call we refused
+  });
+
+  it("a register that gives no answer pauses every register call in the app for 15 minutes — kept in the database", async () => {
+    nswKeys();
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubEnv("WHITECARD_CHECKS_PER_DAY", "1000000");
+    await sql`DELETE FROM rate_limits WHERE key = ${CHECKS}`;
+    const verifyCalls = (spy: ReturnType<typeof stubRegister>) => spy.mock.calls.filter(([u]) => !String(u).includes("/accesstoken")).length;
+
+    // Worker one's save finds the register down.
+    const downSpy = stubRegister(() => json(503, { message: "Your API quota or rate limit has been exceeded" }));
+    expect(await save("CIC1765245", { issued_state: "NSW" })).toMatchObject({ ok: true, status: "unchecked" });
+    expect(verifyCalls(downSpy)).toBe(1);
+    const [row] = await sql`SELECT window_start FROM rate_limits WHERE key = ${PAUSED}`;
+    expect(row, "the pause is a row every instance reads, not memory").toBeTruthy();
+    const until = await registerPausedUntil();
+    const [{ now }] = await sql<{ now: Date }[]>`SELECT now()`;    // the database's clock, not this machine's
+    const mins = (until!.getTime() - now.getTime()) / 60_000;
+    expect(mins).toBeGreaterThan(REGISTER_PAUSE_MIN - 1);
+    expect(mins).toBeLessThanOrEqual(REGISTER_PAUSE_MIN);
+
+    // Worker two saves while it's paused: nothing is asked, nothing comes off the day's budget, and the card is queued.
+    const spent = await hitsToday();
+    const healthy = stubRegister(() => json(200, []));
+    process.env.TEST_USER_ID = mate;
+    expect(await save("CIC1765246", { issued_state: "NSW" })).toMatchObject({ ok: true, status: "unchecked" });
+    expect(healthy).not.toHaveBeenCalled();                        // no token call, no verify call
+    expect(await hitsToday()).toBe(spent);
+    const [queued] = await sql`SELECT recheck_at, check_attempts FROM licences WHERE worker_id = ${mate} AND kind = 'WC'`;
+    expect(queued.recheck_at).not.toBeNull();
+    expect(queued.check_attempts).toBe(0);
+
+    // Fifteen minutes on, it lifts by itself and calls go out again.
+    await sql`UPDATE rate_limits SET window_start = now() - make_interval(mins => ${REGISTER_PAUSE_MIN}, secs => 1) WHERE key = ${PAUSED}`;
+    expect(await registerPausedUntil()).toBeNull();
+    expect(await save("CIC1765247", { issued_state: "NSW" })).toMatchObject({ ok: true, status: "not_found" });
+    expect(verifyCalls(healthy)).toBe(1);
+    expect(quiet.mock.calls.flat().join(" ")).not.toMatch(/CIC17652/);   // the log says it paused, never which card
   });
 
   it("a card with no number is refused without spending an attempt", async () => {

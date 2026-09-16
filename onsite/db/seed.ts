@@ -6,6 +6,7 @@
  *   Worker: 0400 000 101 (Batbayar)
  */
 import postgres from "postgres";
+import { PRIVACY_VERSION } from "../lib/privacy";
 const sql = postgres(process.env.DATABASE_URL!, { ssl: "require", max: 1 });
 
 // Days count from Sydney's today, not UTC's: the app's DB session runs in Australia/Sydney, so UTC dates were a day behind every morning.
@@ -61,12 +62,13 @@ async function main() {
 
   const uid: Record<number, string> = {};
   for (const b of bosses) {
-    const [u] = await sql`INSERT INTO users (phone, name, role) VALUES (${P(b.n)}, ${b.name}, 'boss') RETURNING id`;
+    // Demo accounts count as having agreed to the privacy notice, as onboarding would have recorded.
+    const [u] = await sql`INSERT INTO users (phone, name, role, privacy_accepted_at, privacy_version) VALUES (${P(b.n)}, ${b.name}, 'boss', now(), ${PRIVACY_VERSION}) RETURNING id`;
     uid[b.n] = u.id;
     await sql`INSERT INTO bosses (user_id, company, abn) VALUES (${u.id}, ${b.company}, ${b.abn})`;
   }
   for (const [n, name, sub, lat, lng, tix, visa, radius] of workers) {
-    const [u] = await sql`INSERT INTO users (phone, name, role) VALUES (${P(n)}, ${name}, 'worker') RETURNING id`;
+    const [u] = await sql`INSERT INTO users (phone, name, role, privacy_accepted_at, privacy_version) VALUES (${P(n)}, ${name}, 'worker', now(), ${PRIVACY_VERSION}) RETURNING id`;
     uid[n] = u.id;
     await sql`INSERT INTO workers (user_id, home, home_label, radius_km, tickets, visa_type, invite_code)
       VALUES (${u.id}, ST_SetSRID(ST_MakePoint(${lng}, ${lat}),4326)::geography, ${sub}, ${radius}, ${tix}, ${visa}, ${"M" + String(n).slice(1) + "XK"})`;

@@ -24,6 +24,10 @@
  *  - Budget refused → nothing was asked, so no attempt is spent: the card waits until the day's
  *    budget window closes (at least CAP_WAIT_MIN), and the rest of the batch waits with it
  *    without knocking on the ceiling again.
+ *  - Paused → a register call somewhere in the app failed in the last REGISTER_PAUSE_MIN minutes
+ *    (lib/licenceCheck.ts), so nothing was asked and no attempt is spent: the card waits until the
+ *    pause lifts, and so does the rest of the batch. A failure inside this run starts that pause, so
+ *    the cards after it in the batch are deferred rather than each spending an attempt on a dead register.
  *
  * Races. A claim moves `recheck_at` LEASE_MIN ahead inside the same statement that picks the rows
  * (FOR UPDATE SKIP LOCKED, as deliverAlerts does), so two runs never take the same card and a run
@@ -36,7 +40,7 @@
  * summary is counts only.
  */
 import { sql } from "@/lib/db";
-import { checkLicence, checksResumeAt, gaveUpNote } from "@/lib/licenceCheck";
+import { checkLicence, checksResumeAt, gaveUpNote, registerPausedUntil } from "@/lib/licenceCheck";
 import { recomputeTickets } from "@/lib/booking";
 import type { CheckResult, LicenceKind } from "@/lib/verify";
 
@@ -61,7 +65,7 @@ export const VERIFIED_ALERT = "Your White Card checked out with SafeWork NSW.";
 
 export type RecheckSummary = {
   claimed: number; verified: number; not_found: number; expired: number; mismatch: number;
-  retrying: number; gave_up: number; cap_deferred: number;
+  retrying: number; gave_up: number; cap_deferred: number; paused: number;
 };
 
 type Claimed = {
@@ -78,7 +82,7 @@ const unchanged = (r: Claimed) => sql`
   AND expires_on IS NOT DISTINCT FROM ${r.expires_on}::date`;
 
 export async function recheckLicences(limit = RECHECK_BATCH): Promise<RecheckSummary> {
-  const out: RecheckSummary = { claimed: 0, verified: 0, not_found: 0, expired: 0, mismatch: 0, retrying: 0, gave_up: 0, cap_deferred: 0 };
+  const out: RecheckSummary = { claimed: 0, verified: 0, not_found: 0, expired: 0, mismatch: 0, retrying: 0, gave_up: 0, cap_deferred: 0, paused: 0 };
   const rows = await sql<Claimed[]>`
     WITH due AS MATERIALIZED (
       SELECT id FROM licences
@@ -92,17 +96,19 @@ export async function recheckLicences(limit = RECHECK_BATCH): Promise<RecheckSum
     RETURNING l.id, l.worker_id, l.kind, l.number, l.issued_state, l.holder_name, l.expires_on::text AS expires_on, l.check_attempts`;
   out.claimed = rows.length;
 
-  let capSpent = false;                                // one refusal is the whole app's answer for this run
+  // One refusal — the day's budget, or a pause — is the whole app's answer for the rest of this run.
+  let stopped: "cap_refused" | "paused" | null = null;
   let resume: Date | null | undefined;
   for (const r of rows) {
     try {
-      const result: CheckResult | null = capSpent ? null : await checkLicence({
+      const result: CheckResult | null = stopped ? null : await checkLicence({
         kind: r.kind, number: r.number, issued_state: r.issued_state, holder_name: r.holder_name ?? "", expires_on: r.expires_on,
       });
+      const refusal: "cap_refused" | "paused" | null = stopped ?? (result?.retryable === "cap_refused" || result?.retryable === "paused" ? result.retryable : null);
 
-      if (!result || result.retryable === "cap_refused") {
+      if (refusal === "cap_refused") {
         // Nothing was asked, so nothing is spent: same attempt count, back when the budget is.
-        capSpent = true;
+        stopped = refusal;
         if (resume === undefined) resume = await checksResumeAt();
         const moved = await sql`
           UPDATE licences SET recheck_at = GREATEST(now() + make_interval(mins => ${CAP_WAIT_MIN}), ${resume}::timestamptz)
@@ -110,6 +116,17 @@ export async function recheckLicences(limit = RECHECK_BATCH): Promise<RecheckSum
         if (moved.count) out.cap_deferred++;
         continue;
       }
+      if (refusal === "paused") {
+        // Nothing was asked here either: same attempt count, back the moment the pause lifts (or next run, if it just did).
+        stopped = refusal;
+        if (resume === undefined) resume = await registerPausedUntil();
+        const moved = await sql`
+          UPDATE licences SET recheck_at = GREATEST(now(), ${resume}::timestamptz)
+          WHERE ${unchanged(r)}`;
+        if (moved.count) out.paused++;
+        continue;
+      }
+      if (!result) continue;                           // unreachable: `stopped` is always one of the two above
 
       if (result.retryable === "failed") {
         const attempts = r.check_attempts + 1;

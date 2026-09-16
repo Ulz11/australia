@@ -3,13 +3,14 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
 import { sql } from "./db";
+import { demoConsoleOn } from "./flags";
 
 const COOKIE = "onsite_session";
 /**
  * The control room shows a Boss phone and a Worker phone side by side on one origin.
  * Each frame gets its own cookie, scoped to its own path, so /boss/* and /worker/*
  * can be two different people at once. Only ever set by /api/console/login, which is
- * off unless DEMO_CONSOLE=1.
+ * off unless DEMO_CONSOLE=1 (and always off in Vercel production — lib/flags.ts).
  */
 export const FRAME_COOKIES = { boss: "onsite_frame_boss", worker: "onsite_frame_worker" } as const;
 const secret = () => {
@@ -54,7 +55,7 @@ export async function userFromToken(token: string | undefined | null): Promise<S
 /**
  * Who is calling an /api/v1 route. The mobile app has no cookie jar, so the same JWT
  * travels as a bearer token; a browser calling the same route still works via the cookie.
- * Note proxy.ts does not match /api/*, so every handler must call this itself.
+ * There is no proxy in front of any route: every handler must call this itself.
  */
 export const getApiUser = cache(async (): Promise<SessionUser | null> => {
   const auth = (await headers()).get("authorization");
@@ -70,7 +71,7 @@ export const getUser = cache(async (): Promise<SessionUser | null> => {
   }
   const jar = await cookies();
   // A control-room frame cookie only reaches its own path, so if one is present it wins.
-  const frame = process.env.DEMO_CONSOLE === "1" ? jar.get(FRAME_COOKIES.boss)?.value ?? jar.get(FRAME_COOKIES.worker)?.value : undefined;
+  const frame = demoConsoleOn() ? jar.get(FRAME_COOKIES.boss)?.value ?? jar.get(FRAME_COOKIES.worker)?.value : undefined;
   const token = frame ?? jar.get(COOKIE)?.value;
   if (!token) return null;
   try {

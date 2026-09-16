@@ -3,8 +3,9 @@ import { body, fail, json, preflight } from "@/lib/apiJson";
 
 /**
  * Ask for a login code. Everything that makes this safe — the per-connection, per-number
- * and app-wide budgets, the atomic send, the refund on any path that doesn't end in a
- * text — lives in `requestCode` and is shared with the web form. This only translates.
+ * and app-wide budgets, the closed-beta guest list, the atomic send, the refund on any path
+ * that doesn't end in a text — lives in `requestCode` and is shared with the web form.
+ * This only translates.
  */
 export async function POST(req: Request) {
   const b = await body<{ phone?: string }>(req);
@@ -14,6 +15,7 @@ export async function POST(req: Request) {
   form.set("phone", b.phone);
   const r = await requestCode({ step: "phone" }, form);
 
+  if (r.refused === "invite_only") return fail(req, 403, r.error!);   // closed beta: not a limit, so not 429
   if (r.error) return fail(req, 429, r.error);
   return json(req, { step: "code", phone: r.phone, devCode: r.devCode ?? null });
 }

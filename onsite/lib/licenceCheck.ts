@@ -11,7 +11,7 @@
  *    Anyone can type a number into the form; the reply must not tell them whose it is.
  */
 import { verifyWhiteCard, whitecardConfigured, whitecardChecksPerDay, sameNumber } from "@/lib/whitecard";
-import { hit, refund, windowEndsAt } from "@/lib/ratelimit";
+import { hit, pause, refund, windowEndsAt } from "@/lib/ratelimit";
 import {
   AUTO_KINDS, REGULATOR, canAutoCheck, isExpired, namesMatch,
   type CheckRequest, type CheckResult,
@@ -42,6 +42,20 @@ async function spendCheck(): Promise<boolean> {
  */
 export const checksResumeAt = () => windowEndsAt(CHECKS_KEY, DAY);
 
+/**
+ * After a call that got no usable answer, every register call in the app stops for this long.
+ *
+ * A register that is down, or throttling us, answers the next call the same way — and each of those calls
+ * still counts against the 2,500-a-month quota. So one "failed" pauses them all: saves and the re-check
+ * queue get "paused" (couldn't check, try later) without asking. The pause is a row in rate_limits, not
+ * a variable, because a Vercel instance can't see another instance's memory.
+ */
+export const REGISTER_PAUSE_MIN = 15;
+const PAUSE_KEY = "whitecard:paused";
+
+/** When register calls may start again — null when they aren't paused. */
+export const registerPausedUntil = () => windowEndsAt(PAUSE_KEY, REGISTER_PAUSE_MIN * 60);
+
 /** The register's own word. Anything we don't recognise is not a card to send someone on site with. */
 const isCurrent = (status?: string | null) => (status ?? "").trim().toLowerCase() === "current";
 
@@ -67,14 +81,17 @@ type NoAnswer = NonNullable<CheckResult["retryable"]>;
  * NSW: the SafeWork White Card register, via the Service NSW API.
  *  - null           not ours to ask: the keys aren't set, or the card isn't the kind that register holds.
  *                   The caller falls back to a human, and there is nothing to retry.
+ *  - "paused"       a call failed in the last REGISTER_PAUSE_MIN minutes, so we didn't ask (and spent no budget).
  *  - "cap_refused"  the day's budget is spent, so we didn't ask.
  *  - "failed"       we asked and nothing usable came back (network, timeout, token, 4xx/5xx, throttled
- *                   with 429/503, a body we can't read).
- * Both of the last two are "couldn't check", never "not on the register" — and they are told apart
+ *                   with 429/503, a body we can't read). This starts the pause.
+ * The last three are "couldn't check", never "not on the register" — and they are told apart
  * right here, where each one happens, so the re-check queue never has to guess from the wording.
  */
 async function checkNsw(req: CheckRequest): Promise<CheckResult | NoAnswer | null> {
   if (req.kind !== "WC" || !whitecardConfigured()) return null;
+  // Checked before the budget: a paused call is one we don't make, so it mustn't cost the day's budget either.
+  if (await registerPausedUntil()) return "paused";
   // The day's budget is charged here because this line is the last thing before a call leaves the
   // building, and this is the only place that calls the register. At the ceiling the answer is
   // "couldn't check", so the worker gets the honest note. Never not_found: a budget of ours is not
@@ -84,7 +101,11 @@ async function checkNsw(req: CheckRequest): Promise<CheckResult | NoAnswer | nul
     return "cap_refused";
   }
   const rows = await verifyWhiteCard(req.number);
-  if (rows === null) return "failed";                              // couldn't check — never "not on the register"
+  if (rows === null) {                                             // couldn't check — never "not on the register"
+    await pause(PAUSE_KEY).catch((e) => console.error("couldn't pause White Card checks", (e as { code?: string })?.code ?? "error"));
+    console.error(`White Card register gave no answer — register calls paused for ${REGISTER_PAUSE_MIN} min`);
+    return "failed";
+  }
 
   const mine = rows.filter((r) => sameNumber(r.licenceNumber, req.number));
   const cards = mine.filter((r) => isWhiteCard(r.licenceType));

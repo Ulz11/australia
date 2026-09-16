@@ -53,9 +53,11 @@ export type CheckResult = {
    *                   429/503, a body we can't read). The call was paid for, so a retry costs an attempt.
    *  - "cap_refused": we never asked — the app's daily register budget was already spent. Nothing
    *                   was tried, so a retry must not cost the worker an attempt.
+   *  - "paused":      we never asked — a register call failed in the last 15 minutes and every call is on
+   *                   hold (lib/licenceCheck.ts). Nothing was tried, so no attempt is spent either.
    * Absent on every real answer, and on every card no register of ours can check.
    */
-  retryable?: "failed" | "cap_refused";
+  retryable?: "failed" | "cap_refused" | "paused";
 };
 
 /** States whose registers we can check automatically right now. */
@@ -87,7 +89,7 @@ export const REGULATOR: Record<string, { name: string; url: string }> = {
  * Is this card past its date? Checked locally regardless of register access.
  *
  * A card is good until the end of its expiry day *on site* — Sydney, not wherever the server
- * happens to run. Comparing days as strings does that in one step: a UTC box (Render is one)
+ * happens to run. Comparing days as strings does that in one step: a UTC box (Vercel functions run in UTC)
  * comparing `new Date(day + "T23:59:59")` against `now` would keep a card alive for the ten
  * hours after Sydney's midnight, which is a whole working morning on an expired card.
  */

@@ -11,9 +11,17 @@ const json = (status: number, body: unknown) => new Response(JSON.stringify(body
  * lives in Postgres. Stub it here: these stay unit tests (fast, no DB), and nothing in this file
  * spends the real `whitecard:all` budget that tests/integration/licences.test.ts — which owns the
  * ceiling — is counting in parallel. Flip `budget.room` to stand at the ceiling.
+ *
+ * The app-wide register pause (a row in the same table) is stubbed the same way: `budget.pausedUntil` is what
+ * the pause reads back, and `budget.pauses` records every pause a failure started.
  */
-const budget = vi.hoisted(() => ({ room: true }));
-vi.mock("@/lib/ratelimit", () => ({ hit: async () => budget.room, refund: async () => {} }));
+const budget = vi.hoisted(() => ({ room: true, asked: 0, pausedUntil: null as Date | null, pauses: [] as string[] }));
+vi.mock("@/lib/ratelimit", () => ({
+  hit: async () => (budget.asked++, budget.room),
+  refund: async () => {},
+  windowEndsAt: async (key: string) => (key === "whitecard:paused" ? budget.pausedUntil : null),
+  pause: async (key: string) => { budget.pauses.push(key); },
+}));
 
 let calls: string[] = [];
 /** Token always works; the register answers with whatever the test hands it. */
@@ -35,6 +43,7 @@ const card = (over: Record<string, unknown> = {}) => ({
 const wc = { kind: "WC" as const, number: "CIC1765241", issued_state: "NSW", holder_name: "Batbayar Erdene" };
 
 beforeEach(() => {
+  Object.assign(budget, { room: true, asked: 0, pausedUntil: null, pauses: [] });
   resetWhitecardToken();
   vi.stubEnv("WHITE_CARD_BASE_URL", BASE);
   vi.stubEnv("WHITE_CARD_API_KEY", "test-key");
@@ -262,6 +271,43 @@ describe("retryable — only a check that was due and gave no answer", () => {
       budget.room = true;
       err.mockRestore();
     }
+  });
+
+  it("a failed call pauses every register call in the app — a real answer or a budget refusal doesn't", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      register(json(503, { message: "Your API quota or rate limit has been exceeded" }));
+      expect((await checkLicence(wc)).retryable).toBe("failed");
+      expect(budget.pauses).toEqual(["whitecard:paused"]);
+      expect(err.mock.calls.flat().join(" ")).not.toContain(wc.number);   // the log says it paused, never which card
+
+      budget.pauses = [];
+      register(json(200, [card()]));
+      expect((await checkLicence(wc)).status).toBe("verified");
+      budget.room = false;
+      register(json(200, [card()]));
+      expect((await checkLicence(wc)).retryable).toBe("cap_refused");
+      expect(budget.pauses).toEqual([]);
+    } finally {
+      err.mockRestore();
+    }
+  });
+
+  it("during a pause nothing is asked and no budget is spent: the answer is \"paused\", queued like any retryable save", async () => {
+    budget.pausedUntil = new Date(Date.now() + 10 * 60_000);
+    register(json(200, [card()]));                                   // a perfectly good card, never asked about
+    const r = await checkLicence(wc);
+    expect(r).toMatchObject({ status: "unchecked", via: "manual", retryable: "paused" });
+    expect(r.note).toMatch(/try again soon/);
+    expect(r.status).not.toBe("not_found");
+    expect(calls).toHaveLength(0);                                   // no token call, no verify call
+    expect(budget.asked).toBe(0);                                    // and the day's budget wasn't touched
+    expect(budget.pauses).toEqual([]);                               // a pause doesn't extend itself
+
+    budget.pausedUntil = null;                                       // lifted
+    register(json(200, [card()]));
+    expect((await checkLicence(wc)).status).toBe("verified");
+    expect(calls.length).toBeGreaterThan(0);
   });
 
   it("every real answer carries no retry flag", async () => {

@@ -28,7 +28,8 @@ export async function hit(key: string, limit: number, windowSeconds: number): Pr
 }
 
 /**
- * The caller's IP as seen by the proxy in front of us (Render appends it last to X-Forwarded-For).
+ * The caller's IP as seen by the proxy in front of us. Vercel overwrites X-Forwarded-For with the client's
+ * address (a client can't smuggle its own in); a proxy that appends puts the address it saw last.
  * null outside a request (scripts, tests) — callers skip IP limits then.
  */
 export async function clientIp(): Promise<string | null> {
@@ -99,6 +100,15 @@ export async function windowEndsAt(key: string, windowSeconds: number): Promise<
     WHERE key = ${key} AND window_start > now() - make_interval(secs => ${windowSeconds})`;
   return r?.at ?? null;
 }
+
+/**
+ * Start (or restart) an app-wide pause on `key`, from now. Kept in the database because serverless instances
+ * share no memory: every instance sees it. How long it lasts is the reader's: windowEndsAt(key, seconds) is
+ * the moment it lifts, or null once it has.
+ */
+export const pause = (key: string) => sql`
+  INSERT INTO rate_limits (key, window_start, hits) VALUES (${key}, now(), 1)
+  ON CONFLICT (key) DO UPDATE SET window_start = now(), hits = 1`.then(() => undefined);
 
 /** Old windows are useless; the cron sweeps them. */
 export const sweepRateLimits = () => sql`DELETE FROM rate_limits WHERE window_start < now() - interval '1 day'`;

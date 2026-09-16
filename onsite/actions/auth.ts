@@ -9,8 +9,12 @@ import { OTP, hashCode, inviteCode, newCode, phoneAllowed } from "@/lib/otp";
 import { clientIp, hit, refund } from "@/lib/ratelimit";
 import { verifyOtp } from "@/lib/otpVerify";
 import { PUSH_COOKIE } from "@/lib/alerts";
+import { devShowOtpOn } from "@/lib/flags";
+import { BETA_REFUSAL, betaInviteOnly, mayRequestCode } from "@/lib/beta";
+import { PRIVACY_VERSION } from "@/lib/privacy";
 
-export type AuthState = { step: "phone" | "code"; phone?: string; error?: string; devCode?: string };
+/** `refused: "invite_only"` marks the closed-beta refusal, so the mobile API can answer 403 instead of 429. */
+export type AuthState = { step: "phone" | "code"; phone?: string; error?: string; devCode?: string; refused?: "invite_only" };
 
 export async function requestCode(_prev: AuthState, form: FormData, opts?: { ip?: string | null }): Promise<AuthState> {
   const phone = normalisePhone(String(form.get("phone") || ""));
@@ -29,6 +33,20 @@ export async function requestCode(_prev: AuthState, form: FormData, opts?: { ip?
   const handBack = () => Promise.all(charged.map(([k, w]) => refund(k, w)));
   if (ip && !(await spend(`otp-send:ip:${ip}`, OTP.sendsPerIpPerHour, 3600)))
     return { step: "phone", error: "Too many codes from this connection. Try again in an hour." };
+
+  // Closed beta (lib/beta.ts): a number that is neither invited nor an account gets one sentence and nothing
+  // else — no text, no code row, nothing from the app-wide or per-number budgets. The connection's charge above
+  // is deliberately NOT handed back: otherwise the gate would answer "is this number invited?" for free.
+  if (betaInviteOnly()) {
+    let listed: boolean;
+    try {
+      listed = await mayRequestCode(phone);
+    } catch (e) {
+      await handBack();                                     // a database hiccup mustn't leave the caller charged
+      throw e;
+    }
+    if (!listed) return { step: "phone", error: BETA_REFUSAL, refused: "invite_only" };
+  }
 
   // Check the app-wide ceiling BEFORE touching this number's row: a refusal here must not rotate the code
   // they're holding or spend their 5-an-hour budget. The counter itself only moves when a code really goes out.
@@ -62,7 +80,7 @@ export async function requestCode(_prev: AuthState, form: FormData, opts?: { ip?
         : "Too many codes for this number. Try again in an hour." };
     }
     const { sent: texted, stub } = await sendSms(phone, `OnSite code: ${code}`);
-    const devCode = !texted && process.env.DEV_SHOW_OTP === "1" ? code : undefined;
+    const devCode = !texted && devShowOtpOn() ? code : undefined;
     if (!texted && !stub && !devCode) {
       // The provider refused it and nothing is showing the code on screen: say so instead of sending them to a
       // "type the code we texted you" screen for a text that never left, and hand the budgets back.
@@ -114,7 +132,12 @@ export async function completeOnboarding(form: FormData) {
   const role = String(form.get("role"));
   const name = String(form.get("name") || "").trim();
   if (!name || !["boss", "worker"].includes(role)) return;
-  await sql`UPDATE users SET name = ${name}, role = ${role} WHERE id = ${u.id}`;
+  // Consent is checked here, not only by the checkbox's `required`: a form posted without it sets nothing up.
+  if (form.get("privacy") !== "yes") {
+    const invite = String(form.get("invite") || "").trim();
+    redirect(`/onboarding?err=privacy${invite ? `&invite=${encodeURIComponent(invite)}` : ""}`);
+  }
+  await sql`UPDATE users SET name = ${name}, role = ${role}, privacy_accepted_at = now(), privacy_version = ${PRIVACY_VERSION} WHERE id = ${u.id}`;
   if (role === "boss") {
     const company = String(form.get("company") || name).trim();
     const abn = String(form.get("abn") || "").replace(/\s/g, "") || null;

@@ -1,16 +1,17 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
+import { demoConsoleOn } from "@/lib/flags";
 import { signSession, FRAME_COOKIES } from "@/lib/session";
 import { normalisePhone } from "@/lib/sms";
 
 /**
  * Signs a demo user into one control-room frame. Deliberately narrow:
- *  - only when DEMO_CONSOLE=1
+ *  - only when DEMO_CONSOLE=1, and never on a Vercel production deployment (lib/flags.ts)
  *  - only seeded demo accounts (phones starting +6140000)
  *  - the cookie is scoped to /boss or /worker, so it can't leak into the other frame
  */
 export async function GET(req: Request) {
-  if (process.env.DEMO_CONSOLE !== "1") return new Response("Control room is off. Set DEMO_CONSOLE=1.", { status: 404 });
+  if (!demoConsoleOn()) return new Response("Control room is off. Set DEMO_CONSOLE=1.", { status: 404 });
   const url = new URL(req.url);
   const frame = url.searchParams.get("frame") === "boss" ? "boss" : "worker";
   const phone = normalisePhone(url.searchParams.get("phone") ?? "");

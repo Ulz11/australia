@@ -8,6 +8,9 @@
  * Sharing the database with files running in parallel:
  *  - the app's daily register budget (`whitecard:all`) is counted exactly by tests/integration/licences.test.ts,
  *    so in this file that one key is an in-memory counter — every other key (the per-worker save cap) is real;
+ *  - so is the app-wide register pause (`whitecard:paused`): licences.test.ts owns the real row. Here a failure's
+ *    pause is only recorded (`pauses.started`), and a test turns a pause on by setting `pauses.until` — so the
+ *    backoff tests below still see every failure, and nothing here pauses another file's register calls;
  *  - the cron route's matching and alert delivery are stubbed, so calling the route here can neither
  *    widen another file's shifts nor claim another file's notifications.
  */
@@ -15,14 +18,20 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } 
 import postgres from "postgres";
 
 const budget = vi.hoisted(() => ({ room: true, asked: 0, resumeAt: null as Date | null }));
+const pauses = vi.hoisted(() => ({ started: 0, until: null as Date | null, read: 0 }));
 vi.mock("@/lib/ratelimit", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/ratelimit")>();
   const DAY_BUDGET = "whitecard:all";
+  const PAUSE = "whitecard:paused";
   return {
     ...real,
     hit: (key: string, limit: number, win: number) => (key === DAY_BUDGET ? Promise.resolve((budget.asked++, budget.room)) : real.hit(key, limit, win)),
     refund: (key: string, win: number) => (key === DAY_BUDGET ? Promise.resolve() : real.refund(key, win)),
-    windowEndsAt: (key: string, win: number) => (key === DAY_BUDGET ? Promise.resolve(budget.resumeAt) : real.windowEndsAt(key, win)),
+    windowEndsAt: (key: string, win: number) =>
+      key === DAY_BUDGET ? Promise.resolve(budget.resumeAt)
+      : key === PAUSE ? Promise.resolve((pauses.read++, pauses.until && pauses.until > new Date() ? pauses.until : null))
+      : real.windowEndsAt(key, win),
+    pause: (key: string) => (key === PAUSE ? Promise.resolve(void pauses.started++) : real.pause(key)),
   };
 });
 const cronHooks = vi.hoisted(() => ({ onDeliver: null as null | (() => Promise<void>) }));
@@ -49,7 +58,7 @@ const NAME = "Test Recheck Fixture";
 const NUMBERS = ["CIC0000721", "CIC0000722", "CIC0000723"];
 const REGISTER_NAME = "FIXTURE, Test Recheck";      // how the register spells our worker: a match, but never stored or sent
 const STRANGER = "Somebody Else";
-const NOTHING = { claimed: 0, verified: 0, not_found: 0, expired: 0, mismatch: 0, retrying: 0, gave_up: 0, cap_deferred: 0 };
+const NOTHING = { claimed: 0, verified: 0, not_found: 0, expired: 0, mismatch: 0, retrying: 0, gave_up: 0, cap_deferred: 0, paused: 0 };
 
 const fd = (o: Record<string, string>) => { const f = new FormData(); for (const [k, v] of Object.entries(o)) f.append(k, v); return f; };
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -125,6 +134,7 @@ describe.skipIf(!process.env.DATABASE_URL)("re-checking White Cards the register
     resetWhitecardToken();
     nswKeys();
     Object.assign(budget, { room: true, asked: 0, resumeAt: null });
+    Object.assign(pauses, { started: 0, until: null, read: 0 });
     asked.length = 0;
     cronHooks.onDeliver = null;
     logged = [];
@@ -318,6 +328,58 @@ describe.skipIf(!process.env.DATABASE_URL)("re-checking White Cards the register
     await due(0, 1);
     expect(await recheckLicences()).toEqual({ ...NOTHING, claimed: 2, retrying: 2 });
     for (const who of [0, 1]) expect((await row(who)).check_attempts).toBe(3);
+  });
+
+  it("during a register pause the queue asks nothing, spends no attempt, and waits for the pause to lift", async () => {
+    for (const who of [0, 1, 2]) await saveWhileDown(who);
+    await sql`UPDATE licences SET check_attempts = 3 WHERE worker_id = ANY(${ids})`;
+    await due();
+    const lifts = new Date(Date.now() + 12 * 60_000);
+    pauses.until = lifts;
+    budget.asked = 0;                                                             // the saves above spent some; count from here
+    const spy = stubRegister((n) => json(200, [card(n)]));
+
+    expect(await recheckLicences()).toEqual({ ...NOTHING, claimed: 3, paused: 3 });
+    expect(spy).not.toHaveBeenCalled();                                           // no token call, no verify call
+    expect(budget.asked).toBe(0);                                                 // nor a single hit on the day's budget
+    for (const who of [0, 1, 2]) {
+      const r = await row(who);
+      expect(r).toMatchObject({ status: "unchecked", check_attempts: 3 });         // no attempt burned
+      expect(Math.abs(new Date(r.recheck_at).getTime() - lifts.getTime())).toBeLessThan(1000);   // back exactly when the pause lifts
+    }
+    expect(await alertsFor(0)).toHaveLength(0);
+
+    // Lifted: the same cards are asked about, and answered.
+    pauses.until = null;
+    await due();
+    expect(await recheckLicences()).toEqual({ ...NOTHING, claimed: 3, verified: 3 });
+    expect([...asked].sort()).toEqual([...NUMBERS].sort());
+  });
+
+  it("a failure mid-run pauses the register: the cards after it wait, and don't each burn an attempt on it", async () => {
+    for (const who of [0, 1, 2]) await saveWhileDown(who);
+    await due();
+    pauses.started = 0;
+    const spy = stubRegister(() => { pauses.until = new Date(Date.now() + 15 * 60_000); return down(); });   // what the real pause row does
+
+    const out = await recheckLicences();
+    expect(out).toEqual({ ...NOTHING, claimed: 3, retrying: 1, paused: 2 });
+    expect(pauses.started).toBe(1);                                               // the failure started the pause
+    expect(asked).toHaveLength(1);                                                // one call went out; the other two never did
+    expect(spy.mock.calls.filter(([u]) => !String(u).includes("/accesstoken"))).toHaveLength(1);
+    const attempts = await Promise.all([0, 1, 2].map(async (who) => (await row(who)).check_attempts));
+    expect(attempts.sort()).toEqual([0, 0, 1]);
+  });
+
+  it("a save during a pause asks nothing and is queued like any save that couldn't check", async () => {
+    pauses.until = new Date(Date.now() + 10 * 60_000);
+    const spy = stubRegister((n) => json(200, [card(n)]));
+    expect(await save(0)).toMatchObject({ ok: true, status: "unchecked" });
+    expect(spy).not.toHaveBeenCalled();
+    const r = await row(0);
+    expect(r).toMatchObject({ status: "unchecked", check_attempts: 0, checked_at: null });
+    expect(r.check_note).toMatch(/try again soon/);
+    expect(r.mins).toBeGreaterThan(RECHECK_FIRST_MIN - 0.5);                      // on the queue, like a register that was down
   });
 
   it("an answer about a card the worker changed or removed while we asked is dropped", async () => {

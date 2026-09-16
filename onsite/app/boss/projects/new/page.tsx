@@ -2,7 +2,9 @@ import { createProject } from "@/actions/boss";
 import { AddressPin } from "@/components/AddressPin";
 import { Header, Page } from "@/components/Header";
 import { Field } from "@/components/ui";
-export default function NewProject() {
+import { requireRole } from "@/lib/session";
+export default async function NewProject() {
+  await requireRole("boss");                   // every page guards itself: there is no proxy in front of /boss
   return (
     <>
       <Header title="New site" back="/boss" />

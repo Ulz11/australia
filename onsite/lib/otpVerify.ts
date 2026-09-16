@@ -41,8 +41,15 @@ export async function verifyOtp(phone: string, code: string, ip: string | null):
                            WHERE phone = ${phone} AND code = ${row.code} AND expires_at > now() RETURNING 1`;
   if (!used) return { ok: false, step: "phone", error: "Code expired. Try again." };
 
-  const [user] = await sql`INSERT INTO users (phone) VALUES (${phone})
-                           ON CONFLICT (phone) DO UPDATE SET phone = EXCLUDED.phone
-                           RETURNING id, role, name`;
+  // One statement: the account, and — on a closed-beta invite's first sign-in — the stamp saying the invite was used.
+  const [user] = await sql`
+    WITH u AS (
+      INSERT INTO users (phone) VALUES (${phone})
+      ON CONFLICT (phone) DO UPDATE SET phone = EXCLUDED.phone
+      RETURNING id, role, name
+    ), invited AS (
+      UPDATE beta_invites SET first_signed_in_at = now() WHERE phone = ${phone} AND first_signed_in_at IS NULL
+    )
+    SELECT id, role, name FROM u`;
   return { ok: true, userId: user.id, role: user.role, name: user.name };
 }

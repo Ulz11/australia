@@ -10,6 +10,7 @@
     "db:seed": "tsx db/seed.ts",
     "qpay:ping": "tsx scripts/qpay-ping.ts",
     "whitecard:ping": "tsx scripts/whitecard-ping.ts",
+    "beta:invite": "tsx scripts/beta-invite.ts",
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",

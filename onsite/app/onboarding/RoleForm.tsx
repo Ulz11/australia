@@ -1,9 +1,10 @@
 "use client";
 import { useState } from "react";
+import Link from "next/link";
 import { AddressPin } from "@/components/AddressPin";
 import { Field } from "@/components/ui";
 
-export function RoleForm({ invite, defaultRole }: { invite?: string; defaultRole?: "boss" | "worker" }) {
+export function RoleForm({ invite, defaultRole, error }: { invite?: string; defaultRole?: "boss" | "worker"; error?: string }) {
   const [role, setRole] = useState<"boss" | "worker">(defaultRole ?? "worker");
   return (
     <>
@@ -31,6 +32,11 @@ export function RoleForm({ invite, defaultRole }: { invite?: string; defaultRole
           <Field label="Got an invite code from a mate? (optional)"><input name="invite" className="input font-mono uppercase" defaultValue={invite ?? ""} placeholder="ABC123" /></Field>
         </>
       )}
+      <label htmlFor="privacy" className="flex items-start gap-3 text-lg">
+        <input id="privacy" type="checkbox" name="privacy" value="yes" required className="mt-1 h-6 w-6 shrink-0 accent-ink" />
+        <span>I agree to the <Link href="/privacy" target="_blank" className="font-bold underline">privacy notice</Link>.</span>
+      </label>
+      {error && <p className="text-warn font-semibold">{error}</p>}
       <button className="btn-primary text-xl">Done</button>
     </>
   );

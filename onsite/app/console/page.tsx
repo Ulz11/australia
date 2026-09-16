@@ -3,6 +3,8 @@ import path from "node:path";
 import { sql } from "@/lib/db";
 import { mdToHtml } from "@/lib/md";
 import { whitecardConfigured } from "@/lib/whitecard";
+import { demoConsoleOn, devShowOtpOn } from "@/lib/flags";
+import { smsProvider } from "@/lib/sms";
 import { Console } from "./Console";
 import "./console.css";
 export const dynamic = "force-dynamic";
@@ -13,8 +15,8 @@ export const dynamic = "force-dynamic";
  * marketplace simulation found, and the project's vitals.
  */
 export default async function ControlRoom() {
-  if (process.env.DEMO_CONSOLE !== "1")
-    return <main className="cr-off"><h1>Control room is off</h1><p>Set <code>DEMO_CONSOLE=1</code> in <code>.env</code> and restart. Never turn it on in production — it signs demo accounts in without a code.</p></main>;
+  if (!demoConsoleOn())
+    return <main className="cr-off"><h1>Control room is off</h1><p>Set <code>DEMO_CONSOLE=1</code> in <code>.env</code> and restart. It stays off on a Vercel production deployment whatever the variable says — it signs demo accounts in without a code.</p></main>;
 
   const [bosses, workers, counts] = await Promise.all([
     sql`SELECT u.id, u.phone, u.name, b.company FROM users u JOIN bosses b ON b.user_id = u.id WHERE u.phone LIKE '+6140000%' ORDER BY u.phone`,
@@ -36,12 +38,12 @@ export default async function ControlRoom() {
   const readme = mdToHtml(read("README.md"));
   const env = {
     db: !!process.env.DATABASE_URL,
-    twilio: !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM),
+    sms: smsProvider().provider,
     nsw: whitecardConfigured(),
     push: !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY && process.env.VAPID_SUBJECT),
     qpay: !!(process.env.QPAY_USERNAME && process.env.QPAY_PASSWORD && process.env.QPAY_INVOICE_CODE),
     cron: !!process.env.CRON_SECRET,
-    devOtp: process.env.DEV_SHOW_OTP === "1",
+    devOtp: devShowOtpOn(),
     node: process.env.NODE_ENV ?? "development",
   };
   const tests = countTests();

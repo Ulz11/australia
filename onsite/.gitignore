@@ -7,3 +7,6 @@ next-env.d.ts
 
 # Generated from node_modules by scripts/copy-maplibre-worker.mjs
 public/maplibre/
+.vercel
+.env*
+!.env.example

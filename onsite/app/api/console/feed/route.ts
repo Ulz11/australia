@@ -1,8 +1,9 @@
 import { sql } from "@/lib/db";
+import { demoConsoleOn } from "@/lib/flags";
 
 /** What just happened, for the control room's live feed. Demo mode only. */
 export async function GET() {
-  if (process.env.DEMO_CONSOLE !== "1") return new Response("off", { status: 404 });
+  if (!demoConsoleOn()) return new Response("off", { status: 404 });
   const [events, counts] = await Promise.all([
     sql`SELECT n.id, n.kind, n.body, n.user_id, n.created_at, u.name, u.role
         FROM notifications n JOIN users u ON u.id = n.user_id
