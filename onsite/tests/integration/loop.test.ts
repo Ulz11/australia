@@ -19,7 +19,7 @@ describe.skipIf(!process.env.DATABASE_URL)("core loop: post → match → take �
   const created: string[] = [];
   // Seed only gives Dave a shift tomorrow; anything of his 3+ days out is ours from an earlier run.
   beforeAll(async () => {
-    await sql`DELETE FROM rate_limits WHERE key LIKE 'shift-post:%'`;
+    await sql`DELETE FROM rate_limits WHERE key = 'shift-post:' || (SELECT id FROM users WHERE phone = '+61400000001')`;   // Dave's only: posts.test counts its own bosses'
     await sql`DELETE FROM shifts WHERE day >= CURRENT_DATE + 3 AND boss_id = (SELECT id FROM users WHERE phone = '+61400000001')`;
     await sql`DELETE FROM blocks WHERE boss_id = (SELECT id FROM users WHERE phone = '+61400000001')`;
   });

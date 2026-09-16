@@ -16,12 +16,13 @@ export const LICENCE_SAVES_PER_HOUR = 10;
 /**
  * Fixed-window counter, one atomic statement: parallel requests can't all slip under the limit.
  * Returns true while the key is still within `limit` hits for the current window.
+ * `cost` spends several hits at once (a job post with three kinds of worker is three shifts); refund the same number.
  */
-export async function hit(key: string, limit: number, windowSeconds: number): Promise<boolean> {
+export async function hit(key: string, limit: number, windowSeconds: number, cost = 1): Promise<boolean> {
   const [r] = await sql<{ hits: number }[]>`
-    INSERT INTO rate_limits AS r (key, window_start, hits) VALUES (${key}, now(), 1)
+    INSERT INTO rate_limits AS r (key, window_start, hits) VALUES (${key}, now(), ${cost}::int)
     ON CONFLICT (key) DO UPDATE SET
-      hits = CASE WHEN r.window_start < now() - make_interval(secs => ${windowSeconds}) THEN 1 ELSE r.hits + 1 END,
+      hits = CASE WHEN r.window_start < now() - make_interval(secs => ${windowSeconds}) THEN ${cost}::int ELSE r.hits + ${cost}::int END,
       window_start = CASE WHEN r.window_start < now() - make_interval(secs => ${windowSeconds}) THEN now() ELSE r.window_start END
     RETURNING hits`;
   return r.hits <= limit;
@@ -89,8 +90,8 @@ export async function hasRoom(key: string, limit: number, windowSeconds: number)
 export const atSendCeiling = async () => !(await hasRoom("otp-send:all", OTP.sendsPerHourAll(), 3600));
 
 /** Hand a hit back when the thing it was paying for didn't happen (a later gate refused, or the send failed). */
-export const refund = (key: string, windowSeconds: number) => sql`
-  UPDATE rate_limits SET hits = GREATEST(0, hits - 1)
+export const refund = (key: string, windowSeconds: number, n = 1) => sql`
+  UPDATE rate_limits SET hits = GREATEST(0, hits - ${n}::int)
   WHERE key = ${key} AND window_start > now() - make_interval(secs => ${windowSeconds})`;
 
 /** When the live window `hit` opened on this key closes — null when there is no live window. */
