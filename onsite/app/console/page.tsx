@@ -31,7 +31,10 @@ export default async function ControlRoom() {
           (SELECT COUNT(*) FROM bookings WHERE status = 'approved')::int AS owed,
           (SELECT COUNT(*) FROM offers WHERE status = 'pending')::int AS open_offers,
           (SELECT COUNT(*) FROM licences WHERE status = 'unchecked' AND recheck_at IS NULL)::int AS cards_to_check,   -- a card the cron is still re-checking isn't a person's job yet
-          (SELECT COUNT(*) FROM notifications WHERE created_at > now() - interval '24 hours')::int AS notifs_24h`,
+          (SELECT COUNT(*) FROM notifications WHERE created_at > now() - interval '24 hours')::int AS notifs_24h,
+          (SELECT COUNT(*) FROM introductions WHERE billed_at IS NOT NULL)::int AS matches_billed,
+          (SELECT COUNT(*) FROM invoices WHERE status = 'open')::int AS invoices_open,
+          (SELECT COUNT(*) FROM invoices)::int AS invoices`,
   ]);
   const read = (p: string) => { try { return fs.readFileSync(path.join(/*turbopackIgnore: true*/ process.cwd(), p), "utf8"); } catch { return ""; } };
   const results = mdToHtml(read("sim/RESULTS.md") || "_Run `python3 sim/marketplace.py` to generate sim/RESULTS.md._");

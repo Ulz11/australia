@@ -46,7 +46,7 @@ export async function takeShift(shiftId: string) {
   if (g.missing.length) return { error: `You need: ${g.missing.join(", ")}` };
   if (g.blocked) return { error: "Not available to you." };
 
-  const r = await bookWorker({ shiftId, workerId: u.id, workerName: u.name!,
+  const r = await bookWorker({ shiftId, workerId: u.id, workerName: u.name!, via: "match",
     notify: { userId: g.boss_id, kind: "booking", body: (day) => `${u.name} took your ${day} shift.` } });
   if (!r.ok) return { error: r.error };
   redirect("/worker/shift");
@@ -288,7 +288,7 @@ export async function acceptCounter(offerId: string) {
     FROM offers o JOIN shifts s ON s.id = o.shift_id
     WHERE o.id = ${offerId} AND o.worker_id = ${u.id} AND o.from_role = 'boss' AND o.status = 'pending'`;
   if (!o) return { error: "That offer is no longer open." };
-  const r = await bookWorker({ shiftId: o.shift_id, workerId: u.id, workerName: u.name!,
+  const r = await bookWorker({ shiftId: o.shift_id, workerId: u.id, workerName: u.name!, via: "offer",
     agreed: { rate: o.rate == null ? null : Number(o.rate), hours: o.hours == null ? null : Number(o.hours), start_time: o.start_time ? o.start_time.slice(0, 5) : null },
     notify: { userId: o.boss_id, kind: "booking", body: (day, site) => `${u.name} accepted your offer for ${day} at ${site}.` } });
   if (!r.ok) return { error: r.error };

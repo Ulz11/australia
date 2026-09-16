@@ -1,12 +1,14 @@
 import { timingSafeEqual } from "node:crypto";
 import { expandStaleShifts } from "@/lib/matching";
 import { reconcileOpenInvoices } from "@/lib/billing";
+import { closeBillingPeriods } from "@/lib/invoicing";
 import { qpayConfigured } from "@/lib/qpay";
 import { deliverAlerts } from "@/lib/alerts";
 import { sweepRateLimits } from "@/lib/ratelimit";
 import { recheckLicences } from "@/lib/licenceRecheck";
 /** Vercel Cron hits this every 20 minutes (vercel.json). Neon sleeps after 5 idle minutes, so it can sleep between runs.
  *  Widens matching on shifts still open after 20 min, re-checks QPay invoices whose callback never landed,
+ *  ends the free trials that are up and closes the billing periods that are over (lib/invoicing.ts),
  *  asks the White Card register again about cards it couldn't answer for (at most 5 a run), and sends
  *  any alert a crash left unsent. */
 export async function GET(req: Request) {
@@ -20,11 +22,17 @@ export async function GET(req: Request) {
     qpayConfigured() ? reconcileOpenInvoices().catch((e) => ({ error: String(e?.message ?? e) })) : null,   // billing trouble never stops matching
     sweepRateLimits().catch(() => null),
   ]);
+  // Ends the trials that are up and closes the periods that are over — on its own, after matching, so a
+  // billing fault can never stop a shift being filled. Counts only, never a boss id.
+  const billing = await closeBillingPeriods().catch((e) => {
+    console.error("billing run failed", e?.code ?? e?.name ?? "error");
+    return { error: "billing failed" };
+  });
   // Counts only in what comes back: no card numbers, names or ids, and no error text that could carry one.
   const licences = await recheckLicences().catch((e) => {
     console.error("licence re-check run failed", e?.code ?? e?.name ?? "error");
     return { error: "licence re-check failed" };
   });
   const alerts = await deliverAlerts().catch((e) => ({ error: String(e?.message ?? e) }));                  // last, so this round's offers and card results go too
-  return Response.json({ ...matching, ...(qpay ? { qpay } : {}), licences, alerts });
+  return Response.json({ ...matching, ...(qpay ? { qpay } : {}), billing, licences, alerts });
 }

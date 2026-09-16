@@ -41,10 +41,11 @@ describe("signed-in screens guard themselves", () => {
   });
 
   it("every boss and worker server action checks the caller's role before it touches anything", () => {
-    for (const [file, role] of [["actions/boss.ts", "boss"], ["actions/worker.ts", "worker"]] as const) {
+    // [file, the role it is for, how many actions it must at least have — so an empty or renamed file fails here]
+    for (const [file, role, least] of [["actions/boss.ts", "boss", 6], ["actions/worker.ts", "worker", 6], ["actions/billing.ts", "boss", 2]] as const) {
       const src = fs.readFileSync(file, "utf8");
       const bodies = src.split(/^export async function /m).slice(1);
-      expect(bodies.length, file).toBeGreaterThan(5);
+      expect(bodies.length, file).toBeGreaterThanOrEqual(least);
       const unguarded = bodies
         .filter((b) => {
           const firstStatement = b.slice(b.indexOf("{") + 1).trimStart().split("\n")[0];

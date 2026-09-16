@@ -172,7 +172,14 @@ export async function approveHours(form: FormData) {
   const hours = num(form.get("hours"), 0, 16, NaN);
   if (Number.isNaN(hours)) return;
   const reason = String(form.get("pay_reason") || "").trim().slice(0, 120) || null;
-  // Approve + auto-add to crew in one statement; the dollar figure needs the shift's terms, so it's a second.
+  // Approve + auto-add to crew + bill the introduction in one statement; the dollar figure needs the
+  // shift's terms, so it's a second.
+  //
+  // The match fee is settled here and nowhere else: more than zero approved hours is what makes a pair
+  // OnSite introduced a billable match, and it can only happen once — billed_at IS NULL is the guard,
+  // so a second approval, another shift with the same worker, or a later direct booking of them is free
+  // forever. Approving zero hours bills nothing. Editing the hours afterwards never un-bills it: the
+  // introduction happened, and the record of it is not something an edit should be able to rewrite.
   const [b] = await sql`
     WITH b AS (
       UPDATE bookings b SET hours_approved = ${hours}, status = 'approved', approved_at = now(),
@@ -180,10 +187,13 @@ export async function approveHours(form: FormData) {
         clock_out_at = COALESCE(b.clock_out_at, now()), hours_worked = COALESCE(b.hours_worked, ${hours})
       FROM shifts s WHERE b.id = ${bookingId} AND s.id = b.shift_id AND s.boss_id = ${u.id}
         AND b.status IN ('accepted','clocked_in','clocked_out')
-      RETURNING b.worker_id, b.shift_id, b.hours_worked, COALESCE(b.agreed_rate, s.rate) AS rate, s.day::text AS day,
+      RETURNING b.id, b.worker_id, b.shift_id, b.hours_worked, COALESCE(b.agreed_rate, s.rate) AS rate, s.day::text AS day,
                 s.ot_mode, s.ot_after_hours, s.ot_multiplier
     ), c AS (
       INSERT INTO crew (boss_id, worker_id, type, rate) SELECT ${u.id}, worker_id, 'casual', rate FROM b ON CONFLICT DO NOTHING
+    ), i AS (
+      UPDATE introductions x SET billed_at = now(), billed_booking_id = b.id
+      FROM b WHERE x.boss_id = ${u.id} AND x.worker_id = b.worker_id AND x.billed_at IS NULL AND ${hours}::numeric > 0
     )
     SELECT * FROM b`;
   if (!b) return;
@@ -333,7 +343,7 @@ export async function acceptOffer(offerId: string) {
     FROM offers o JOIN shifts s ON s.id = o.shift_id JOIN users us ON us.id = o.worker_id
     WHERE o.id = ${offerId} AND s.boss_id = ${u.id} AND o.from_role = 'worker' AND o.status = 'pending'`;
   if (!o) return { error: "That request is no longer open." };
-  const r = await bookWorker({ shiftId: o.shift_id, workerId: o.worker_id, workerName: o.worker_name,
+  const r = await bookWorker({ shiftId: o.shift_id, workerId: o.worker_id, workerName: o.worker_name, via: "offer",
     agreed: { rate: o.rate == null ? null : Number(o.rate), hours: o.hours == null ? null : Number(o.hours), start_time: o.start_time ? o.start_time.slice(0, 5) : null },
     notify: { userId: o.worker_id, kind: "offer_accepted", body: (day, site) => `${u.name} agreed to your terms for ${day} at ${site}. You're booked.` } });
   if (!r.ok) return { error: r.error };

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { ExternalLink, RotateCw } from "lucide-react";
 
 type Person = { id: string; phone: string; name: string; sub: string };
-type Counts = { bosses: number; workers: number; sites: number; open_shifts: number; live_bookings: number; to_approve: number; owed: number; open_offers: number; cards_to_check: number; notifs_24h: number };
+type Counts = { bosses: number; workers: number; sites: number; open_shifts: number; live_bookings: number; to_approve: number; owed: number; open_offers: number; cards_to_check: number; notifs_24h: number; matches_billed: number; invoices: number; invoices_open: number };
 type Ev = { id: string; kind: string; body: string; user_id: string; created_at: string; name: string; role: string };
 type Env = { db: boolean; sms: string | null; nsw: boolean; push: boolean; qpay: boolean; cron: boolean; devOtp: boolean; node: string };
 
@@ -153,6 +153,7 @@ export function Console({ bosses, workers, counts: c0, env, tests, resultsHtml, 
               <span>Open shifts</span><b>{counts.open_shifts}</b><span>Booked</span><b>{counts.live_bookings}</b><span>Awaiting approval</span><b>{counts.to_approve}</b>
               <span>Approved, unpaid</span><b>{counts.owed}</b><span>Open deal requests</span><b>{counts.open_offers}</b><span>Cards to check by hand</span><b>{counts.cards_to_check}</b>
               <span>Notifications, 24h</span><b>{counts.notifs_24h}</b>
+              <span>Billable matches</span><b>{counts.matches_billed}</b><span>Invoices</span><b>{counts.invoices}</b><span>Invoices open</span><b>{counts.invoices_open}</b>
             </div>
             <p className="cr-hint">Reset with <code>npm run db:seed</code> — only touches demo phones (0400 000 xxx).</p>
           </div>

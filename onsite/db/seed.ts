@@ -65,7 +65,9 @@ async function main() {
     // Demo accounts count as having agreed to the privacy notice, as onboarding would have recorded.
     const [u] = await sql`INSERT INTO users (phone, name, role, privacy_accepted_at, privacy_version) VALUES (${P(b.n)}, ${b.name}, 'boss', now(), ${PRIVACY_VERSION}) RETURNING id`;
     uid[b.n] = u.id;
-    await sql`INSERT INTO bosses (user_id, company, abn) VALUES (${u.id}, ${b.company}, ${b.abn})`;
+    // Same free trial a real boss gets, so the demo's Billing screen shows a live one rather than a blank.
+    await sql`INSERT INTO bosses (user_id, company, abn, trial_ends_at, period_started_at, period_ends_at)
+              VALUES (${u.id}, ${b.company}, ${b.abn}, now() + interval '3 days', now() + interval '3 days', now() + interval '1 month 3 days')`;
   }
   for (const [n, name, sub, lat, lng, tix, visa, radius] of workers) {
     const [u] = await sql`INSERT INTO users (phone, name, role, privacy_accepted_at, privacy_version) VALUES (${P(n)}, ${name}, 'worker', now(), ${PRIVACY_VERSION}) RETURNING id`;

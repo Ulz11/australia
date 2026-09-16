@@ -19,6 +19,13 @@ export function RoleForm({ invite, defaultRole, error }: { invite?: string; defa
           ))}
         </div>
         <input type="hidden" name="role" value={role} />
+        {/* What being a boss costs, said before the account is made — not found later on an invoice. */}
+        {role === "boss" && (
+          <p className="text-steel mt-2">
+            Free for 3 days, then $33 a month for the pay tools — cancel any time. $2 each time OnSite
+            finds you a new worker, charged when you approve their first shift.
+          </p>
+        )}
       </Field>
       <Field label="Your name"><input name="name" className="input" placeholder="First and last" required /></Field>
       {role === "boss" ? (

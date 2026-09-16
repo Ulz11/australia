@@ -1,12 +1,15 @@
 import { sql } from "@/lib/db";
 import { getUser } from "@/lib/session";
 import { payForShift } from "@/lib/rules";
+import { payToolsAllowed } from "@/lib/invoicing";
 import { addDays, weekStart, todayIso } from "@/lib/util";
 
 export async function GET(req: Request) {
   const u = await getUser();
   if (!u) return Response.redirect(new URL("/login", req.url), 307);   // a download link opened signed out: sign in first
   if (u.role !== "boss") return new Response("unauthorised", { status: 401 });
+  // Export is a pay tool. A lapsed boss is sent to the pay screen, which says why and offers the way back.
+  if (!(await payToolsAllowed(u.id)).allowed) return Response.redirect(new URL("/boss/pay", req.url), 307);
   const ws = weekStart(new URL(req.url).searchParams.get("week") || todayIso());
   const [boss] = await sql`SELECT company FROM bosses WHERE user_id = ${u.id}`;
   const rows = await sql`

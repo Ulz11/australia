@@ -207,7 +207,36 @@ Credentials go in `.env` as `WHITE_CARD_API_KEY`, `WHITE_CARD_API_SECRET`, and t
 
 ## Payments (QPay)
 
-`lib/qpay.ts` talks to the QPay merchant API v2 (token → invoice → payment check); `lib/billing.ts` stores invoices in `qpay_invoices` (migration 004); QPay calls `/api/qpay/callback/<invoice>/<hmac>`, which marks an invoice paid **only after QPay's own `/payment/check` confirms it** — at most one check per invoice per 10 s. A lost callback is caught by the 20-minute cron, which re-checks open invoices on a widening gap for 24 h. Amounts are whole MNT — nothing converts AUD. Credentials go in `.env` as `QPAY_USERNAME`, `QPAY_PASSWORD`, `QPAY_INVOICE_CODE`; `npm run qpay:ping` proves they work without raising an invoice. Nothing in the UI charges anyone yet — what to charge, and when, is still a product decision.
+`lib/qpay.ts` talks to the QPay merchant API v2 (token → invoice → payment check); `lib/billing.ts` stores invoices in `qpay_invoices` (migration 004); QPay calls `/api/qpay/callback/<invoice>/<hmac>`, which marks an invoice paid **only after QPay's own `/payment/check` confirms it** — at most one check per invoice per 10 s. A lost callback is caught by the 20-minute cron, which re-checks open invoices on a widening gap for 24 h. Amounts are whole MNT — nothing converts AUD. Credentials go in `.env` as `QPAY_USERNAME`, `QPAY_PASSWORD`, `QPAY_INVOICE_CODE`; `npm run qpay:ping` proves they work without raising an invoice. This is a separate thing from **Billing** below, which is what OnSite charges bosses and which never touches a payment gateway.
+
+## Billing — what the boss pays
+
+Workers never pay. Bosses pay two things, and **nothing in the app ever charges anything**: an invoice is a record with a number on it, and a person marks it paid.
+
+**A billable match** is the **first booking with approved hours above zero** between a boss and a worker **OnSite introduced**. A booking through matching or an accepted offer writes an `introductions` row (`lib/booking.ts`, in the same transaction as the booking); a shift posted straight to one named worker (`direct_worker_id` — "Book again", *Same again tomorrow*) never does, and neither does adding someone to the crew by phone. One row per pair, forever: repeat shifts with that worker are free. An introduced pair **stays** introduced, so if the boss later books them directly, that first approved shift still bills. The fee lands in `approveHours` (`actions/boss.ts`), in the same statement as the approval — 0 hours bills nothing, and a later edit never un-bills it.
+
+**The subscription** is **$33 a month including GST** for the pay tools, after a **3-day free trial** that starts the moment an account becomes a boss (disclosed under the Boss choice at onboarding). The subscription starts by itself when the trial ends, so **the first charge date is the trial end**. Periods run monthly from that anchor — anniversary billing, no proration, a short month falls back to its last day. Introductions bill **from day one**: the trial covers the subscription, not the matches.
+
+**Closing a period** (`closePeriod`, `lib/invoicing.ts`) is one idempotent step: an invoice carrying next period's subscription **in advance** (only while `active`; a `cancelling` boss gets no next line and becomes `lapsed`) plus one match line per introduction billed in the period that just ended, then the period moves on. **No invoice is written for $0.** Running it twice writes nothing the second time — `invoices (boss_id, period_start)` is unique and a billed introduction is stamped with its line. Invoice numbers are `OS-2026-000123`, unique and sequential within the Sydney year (`invoice_counters`). Dates are Sydney dates; invoices are due 14 days after they are issued.
+
+**The gating decision — flagged, not widened.** Only the **Pay page** (`/boss/pay`) and the **CSV export** (`/boss/pay/export`) need `trialing` / `active` / `cancelling`. A lapsed boss gets a plain upsell and a *Start subscription* button instead. **Posting shifts, matching, Workers, and approving hours all stay free** — approving must stay free, because approving is what creates a billable match, and charging for it would mean charging a boss to be charged.
+
+Cancel → `cancelling`, the pay tools run to the end of the period already paid for, then `lapsed`. Re-subscribing from `lapsed` invoices at once from a period starting now (and sweeps up any match fees incurred while lapsed). Changing your mind while still `cancelling` just clears the end date — that period is paid for, so nothing is invoiced.
+
+**Cron.** `/api/cron/expand` (every 20 min) calls `closeBillingPeriods()` after matching, in its own try/catch so a billing fault can never stop a shift being filled, and reports `billing: { trials_ended, closed, invoiced, lapsed }` — counts only, never an id.
+
+**Environment** (all optional, defaults shown): `MATCH_FEE_CENTS=200`, `SUBSCRIPTION_CENTS=3300`, `TRIAL_DAYS=3`, `GST_REGISTERED` (`1` → the invoice says it includes GST at 1/11 of the total; GST is **inside** the price, never added on top — anything else and there is no GST line), `BILLING_PAY_INSTRUCTIONS` (shown on an open invoice; unset shows "We'll send you payment details." — **never invent bank details**), `BUSINESS_NAME` / `BUSINESS_ABN` (the invoice's *From* block; without a name there is no *From* block).
+
+**Scripts** (both read `DATABASE_URL` from the shell only, never `.env`, and print which database they are talking to):
+
+```bash
+DATABASE_URL=… npm run billing:list                                   # every invoice, newest first
+DATABASE_URL=… npm run billing:paid -- OS-2026-000123 --note "…"      # the only way one becomes paid
+```
+
+**Screens.** `/boss/billing` (status in plain words, this period so far, the invoice list) and `/boss/billing/[number]` (tax-invoice layout), linked from `/boss/me`. `components/IntroFeeNote.tsx` sits next to Approve hours and says "First shift with Nima through OnSite — $2 goes on your next invoice" **only** when that approval is what will cause the charge. On a demo deployment (`demoSite()`) both billing screens carry one line saying the invoices are examples.
+
+**Migration 010** adds the columns and tables and backfills: existing bosses get a 3-day trial from `created_at` and a period anchored at its end (a boss whose trial ended long ago is put into the period they are *actually* in, stepping whole months from that anchor — nobody is invoiced for months OnSite never billed them for); existing non-direct booking pairs become introductions already marked billed, with no invoice line, so no one is charged for their own history.
 
 ## Privacy
 
@@ -220,7 +249,7 @@ Credentials go in `.env` as `WHITE_CARD_API_KEY`, `WHITE_CARD_API_SECRET`, and t
 - Award pay mode: 8 ordinary hours, then ×1.5 for 2h, ×2 after. Flat mode: hours × rate. CSV export per week.
 - Clock-in works anywhere; the record shows distance from site and time. Boss can edit hours before approving; the worker sees the edit, both numbers stay, and there's an *I disagree* button that tells the boss to call. No locking, no auto-penalties.
 - Matching notifies **3× the open spots**, ranked by show-up rate → worked-for-this-boss → distance, and widens every 20 minutes. A 2-person shift wakes up 6 phones.
-- Visa type is display-only. No ABN anywhere.
+- Visa type is display-only. A worker never needs an ABN — every shift is employment, not a contract. (A boss's own ABN is optional, and only ever appears on their own invoices.)
 - **One job, several kinds of worker.** "2 carpenters, 1 forklift driver, 3 labourers" is posted once but saved as one shift per kind of worker, sharing a `post_id` — each with its own role, count, licences and rate, and matched on its own (a forklift line only asks LF holders). Site, day, hours and overtime are set once for the job. Each line counts as a post against the hourly posting limit. Bosses see the lines together; *Cancel the whole job* calls off the lines still looking for workers, and full ones stay booked.
 
 ## Not in the MVP (on purpose)
