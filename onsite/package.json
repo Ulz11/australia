@@ -8,29 +8,39 @@
     "start": "next start",
     "db:migrate": "tsx db/migrate.ts",
     "db:seed": "tsx db/seed.ts",
-    "lint": "next lint",
+    "qpay:ping": "tsx scripts/qpay-ping.ts",
+    "whitecard:ping": "tsx scripts/whitecard-ping.ts",
+    "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:db": "vitest run tests/integration"
+    "test:db": "vitest run tests/integration",
+    "postinstall": "node scripts/copy-maplibre-worker.mjs",
+    "predev": "node scripts/copy-maplibre-worker.mjs",
+    "prebuild": "node scripts/copy-maplibre-worker.mjs"
   },
   "dependencies": {
     "jose": "^5.9.6",
-    "maplibre-gl": "^4.7.1",
-    "next": "15.1.6",
+    "maplibre-gl": "^6.10.0",
+    "next": "16.3.5",
     "postgres": "^3.4.5",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@types/node": "^22",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/web-push": "^3.6.4",
     "autoprefixer": "^10.4.20",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.3.5",
+    "http_ece": "^1.2.0",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
-    "vitest": "^2.1.8",
-    "vite-tsconfig-paths": "^5.1.4"
+    "vite": "^8.3.0",
+    "vitest": "^5.0.1"
   }
 }

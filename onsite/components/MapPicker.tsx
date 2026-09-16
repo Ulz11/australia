@@ -1,10 +1,13 @@
 "use client";
 import { useEffect, useRef } from "react";
-import maplibregl from "maplibre-gl";
+import { Map as MapLibreMap, Marker, NavigationControl, getVersion, setWorkerUrl, type MapMouseEvent, type StyleSpecification } from "maplibre-gl";
 import { escapeHtml } from "@/lib/validate";
 import "maplibre-gl/dist/maplibre-gl.css";
 
-export const OSM_STYLE: maplibregl.StyleSpecification = {
+/** The tile worker lives in public/maplibre/<version>/ (copied by scripts/copy-maplibre-worker.mjs) — bundlers can't locate it. */
+const workerUrl = () => `/maplibre/${getVersion()}/maplibre-gl-worker.mjs`;
+
+export const OSM_STYLE: StyleSpecification = {
   version: 8,
   sources: { osm: { type: "raster", tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"], tileSize: 256, attribution: "© OpenStreetMap contributors" } },
   layers: [{ id: "osm", type: "raster", source: "osm" }],
@@ -23,15 +26,16 @@ export function MapView({
   picked?: [number, number] | null; className?: string;
 }) {
   const el = useRef<HTMLDivElement>(null);
-  const map = useRef<maplibregl.Map | null>(null);
-  const markers = useRef<maplibregl.Marker[]>([]);
-  const pickMarker = useRef<maplibregl.Marker | null>(null);
+  const map = useRef<MapLibreMap | null>(null);
+  const markers = useRef<Marker[]>([]);
+  const pickMarker = useRef<Marker | null>(null);
 
   useEffect(() => {
     if (!el.current || map.current) return;
-    const m = new maplibregl.Map({ container: el.current, style: OSM_STYLE, center, zoom, attributionControl: { compact: true } });
-    m.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
-    m.on("click", (e) => onPick?.(e.lngLat.lng, e.lngLat.lat));
+    setWorkerUrl(workerUrl());
+    const m = new MapLibreMap({ container: el.current, style: OSM_STYLE, center, zoom, attributionControl: { compact: true } });
+    m.addControl(new NavigationControl({ showCompass: false }), "top-right");
+    m.on("click", (e: MapMouseEvent) => onPick?.(e.lngLat.lng, e.lngLat.lat));
     m.on("load", () => {
       if (radiusKm) {
         m.addSource("radius", { type: "geojson", data: circle(center, radiusKm) });
@@ -55,7 +59,7 @@ export function MapView({
         d.innerHTML = `<div class="flex items-center gap-1 bg-hv text-ink font-bold text-sm rounded-full pl-2 pr-2.5 py-1 shadow border-2 border-white">${p.count ?? ""}<span class="font-normal text-xs">${escapeHtml(p.label ?? "")}</span></div>`;
       else d.innerHTML = `<div class="w-3.5 h-3.5 rounded-full bg-steel border-2 border-white shadow" title="${escapeHtml(p.label ?? "")}"></div>`;
       d.onclick = (ev) => { ev.stopPropagation(); onPinClick?.(p.id); };
-      markers.current.push(new maplibregl.Marker({ element: d }).setLngLat([p.lng, p.lat]).addTo(m));
+      markers.current.push(new Marker({ element: d }).setLngLat([p.lng, p.lat]).addTo(m));
     }
   }, [pins, onPinClick]);
 
@@ -65,7 +69,7 @@ export function MapView({
     if (picked) {
       const d = document.createElement("div");
       d.innerHTML = `<div class="w-6 h-6 rounded-full bg-hv border-[3px] border-ink shadow-lg"></div>`;
-      pickMarker.current = new maplibregl.Marker({ element: d }).setLngLat(picked).addTo(m);
+      pickMarker.current = new Marker({ element: d }).setLngLat(picked).addTo(m);
     }
   }, [picked]);
 

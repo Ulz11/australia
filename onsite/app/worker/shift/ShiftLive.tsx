@@ -10,7 +10,7 @@ type B = { id: string; status: string; day: string; start_time: string; hours: n
 
 export function ShiftLive({ b, primary, today }: { b: B; primary: boolean; today: string }) {
   const [pending, start] = useTransition();
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(() => Date.now());
   // Status flips on screen immediately; the GPS lookup and the server happen behind it.
   const [status, setStatus] = useOptimistic(b.status);
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(t); }, []);

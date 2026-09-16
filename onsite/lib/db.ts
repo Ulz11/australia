@@ -1,7 +1,6 @@
 import postgres from "postgres";
 
 declare global {
-  // eslint-disable-next-line no-var
   var __sql: ReturnType<typeof postgres> | undefined;
 }
 
@@ -32,5 +31,5 @@ if (!global.__warmed) {
   global.__warmed = true;
   Promise.all([sql`select 1`, sql`select 1`]).catch(() => {});
 }
-declare global { // eslint-disable-next-line no-var
+declare global {
   var __warmed: boolean | undefined; }

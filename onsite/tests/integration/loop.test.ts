@@ -11,7 +11,7 @@ import { runMatchingRound, findCandidates } from "@/lib/matching";
 import { payForDay } from "@/lib/award";
 
 const as = (id: string) => { process.env.TEST_USER_ID = id; };
-const swallowRedirect = async <T,>(fn: () => Promise<T>) => { try { return await fn(); } catch (e: any) { if (String(e?.digest || e?.message).includes("NEXT_REDIRECT")) return null; throw e; } };
+const swallowRedirect = async <T,>(fn: () => Promise<T>) => { try { return await fn(); } catch (e: unknown) { const x = e as { digest?: string; message?: string }; if (String(x?.digest || x?.message).includes("NEXT_REDIRECT")) return null; throw e; } };
 function ok(cond: unknown, msg: string) { expect(cond, msg).toBeTruthy(); }
 const fd = (o: Record<string, string | string[]>) => { const f = new FormData(); for (const [k, v] of Object.entries(o)) (Array.isArray(v) ? v : [v]).forEach((x) => f.append(k, x)); return f; };
 
