@@ -1,8 +1,9 @@
 "use client";
 import { useRef, useState, useTransition } from "react";
+import { Check } from "lucide-react";
 import { saveProfile, removePhoto } from "@/actions/worker";
 import { TRADES, LANGUAGES } from "@/lib/profile";
-import { Field } from "@/components/ui";
+import { Avatar, Field } from "@/components/ui";
 
 /**
  * The profile a boss reads before he books you. Photo is taken on the phone and
@@ -36,9 +37,7 @@ export function ProfileCard({ p }: {
       <input type="hidden" name="photo" value={photo ?? ""} />
 
       <div className="flex items-center gap-4">
-        <div className="w-24 h-24 rounded-2xl bg-site border-2 border-line overflow-hidden shrink-0 flex items-center justify-center">
-          {photo ? <img src={photo} alt="" className="w-full h-full object-cover" /> : <span className="text-4xl" aria-hidden>👷</span>}
-        </div>
+        <Avatar name={p.name} photo={photo} size={96} />
         <div className="flex-1 space-y-2">
           <button type="button" className="btn-dark btn-sm w-full" disabled={busy} onClick={() => file.current?.click()}>
             {busy ? "Working…" : photo ? "Change photo" : "Take a photo"}
@@ -85,7 +84,7 @@ export function ProfileCard({ p }: {
       </Field>
 
       {err && <div className="say-red"><div className="font-bold">{err}</div></div>}
-      <button className="btn-dark">{saved ? "Saved ✓" : "Save my profile"}</button>
+      <button className="btn-dark">{saved ? <><Check size={20} strokeWidth={2.5} aria-hidden />Saved</> : "Save my profile"}</button>
     </form>
   );
 }

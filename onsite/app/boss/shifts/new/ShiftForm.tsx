@@ -1,15 +1,17 @@
 "use client";
 import { useState } from "react";
+import { Minus, Plus, Timer } from "lucide-react";
 import { createShift } from "@/actions/boss";
 import { AWARD_CASUAL_FLOOR, TICKETS } from "@/lib/award";
 import { otInWords, payForShift } from "@/lib/rules";
-import { ROLES, MAX_LINES, MAX_SPOTS, linesInWords } from "@/lib/posts";
+import { ROLES, MAX_LINES, MAX_SPOTS } from "@/lib/posts";
 import { Field } from "@/components/ui";
 
 const HOURS = [4, 6, 8, 10];
 const STARTS = ["06:00", "06:30", "07:00", "07:30", "08:00", "13:00"];
 const say = (t: string) => { const [h, m] = t.split(":").map(Number); return `${((h + 11) % 12) + 1}:${String(m).padStart(2, "0")}${h >= 12 ? "pm" : "am"}`; };
 const floor = (rate: number) => Math.max(rate || 0, AWARD_CASUAL_FLOOR);
+const weekday = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-AU", { weekday: "short", timeZone: "UTC" });
 
 /** One kind of worker in "Who do you need?". Becomes its own shift when posted. */
 type Line = { key: number; role: string; spots: number; rate: number; tix: string[]; needLic: boolean };
@@ -30,6 +32,7 @@ export function ShiftForm({ projects, projectId, days, direct, crew }: {
   const [otMode, setOtMode] = useState<"award" | "flat" | "custom">("award");
   const [otAfter, setOtAfter] = useState(8);
   const [otMult, setOtMult] = useState(1.5);
+  const [otOpen, setOtOpen] = useState(false);
   const [allowOffers, setAllowOffers] = useState(true);
   const r = floor(rate);
   const chosen = crew.find((c) => c.id === who);
@@ -45,10 +48,19 @@ export function ShiftForm({ projects, projectId, days, direct, crew }: {
   const otWords = rates.length === 1 || otMode === "award" ? otInWords(terms, rates[0])
     : otMode === "flat" ? "Every hour at the rate for their kind of work, no overtime rate."
     : `After ${otAfter} hours, ${otMult}× the rate for their kind of work.`;
+  const otShort = otMode === "award" ? "Award — 1.5× for 2 hours after 8, then 2×"
+    : otMode === "flat" ? "Same rate all day, no overtime rate"
+    : `${otMult}× after ${otAfter} hours`;
+
+  // The running total in the bar at the bottom: what this job costs if everyone works the hours as posted.
   const allUp = lines.reduce((sum, l) => sum + l.spots * payForShift(hours, floor(l.rate), terms).gross, 0);
+  const cost = finding ? allUp : payForShift(hours, r, terms).gross;
+  const heads = finding ? lines.reduce((n, l) => n + l.spots, 0) : 1;
+  const dayWord = day === days[0].v ? "Today" : weekday(day);
+  const summary = `${finding ? `${heads} worker${heads > 1 ? "s" : ""}` : (chosen?.name ?? direct?.name ?? "").split(" ")[0]} · ${dayWord} ${say(start)} · ${hours}h`;
 
   return (
-    <form action={createShift} className="space-y-6">
+    <form action={createShift} className="space-y-6 pb-24">
       <input type="hidden" name="direct_worker_id" value={finding ? "" : who} />
       <input type="hidden" name="day" value={day} /><input type="hidden" name="start_time" value={start} />
       <input type="hidden" name="hours" value={hours} />
@@ -72,7 +84,7 @@ export function ShiftForm({ projects, projectId, days, direct, crew }: {
         <div className="grid grid-cols-3 gap-2">
           {days.map((d) => <Chip key={d.v} on={day === d.v && !pick} onClick={() => { setDay(d.v); setPick(false); }}>{d.l}</Chip>)}
         </div>
-        {pick ? <input type="date" value={day} min={days[0].v} onChange={(e) => setDay(e.target.value)} className="input mt-2" />
+        {pick ? <input type="date" value={day} min={days[0].v} onChange={(e) => setDay(e.target.value)} className="input mt-2" aria-label="Another day" />
               : <button type="button" className="text-steel underline text-base mt-2" onClick={() => setPick(true)}>Another day</button>}
       </Field>
 
@@ -99,18 +111,22 @@ export function ShiftForm({ projects, projectId, days, direct, crew }: {
                 <div className="flex items-center justify-between gap-3">
                   <div className="text-base font-bold">How many?</div>
                   <div className="flex items-center gap-2">
-                    <button type="button" className="btn-ghost w-14 px-0 text-3xl" aria-label="One fewer" onClick={() => edit(l.key, { spots: Math.max(1, l.spots - 1) })}>−</button>
+                    <button type="button" className="btn-ghost w-14 px-0" aria-label="One fewer" onClick={() => edit(l.key, { spots: Math.max(1, l.spots - 1) })}>
+                      <Minus size={24} strokeWidth={2.5} aria-hidden />
+                    </button>
                     <div className="text-4xl font-extrabold w-12 text-center num">{l.spots}</div>
-                    <button type="button" className="btn-ghost w-14 px-0 text-3xl" aria-label="One more" onClick={() => edit(l.key, { spots: Math.min(MAX_SPOTS, l.spots + 1) })}>+</button>
+                    <button type="button" className="btn-ghost w-14 px-0" aria-label="One more" onClick={() => edit(l.key, { spots: Math.min(MAX_SPOTS, l.spots + 1) })}>
+                      <Plus size={24} strokeWidth={2.5} aria-hidden />
+                    </button>
                   </div>
                 </div>
 
                 {!l.needLic && l.tix.length === 0 ? (
                   <button type="button" className="text-steel underline text-base text-left" onClick={() => edit(l.key, { needLic: true })}>Needs a licence? (forklift, EWP, dogging, scaffold)</button>
                 ) : (
-                  <div className="flex flex-wrap gap-2">
+                  <div className="grid grid-cols-2 gap-2">
                     {Object.entries(TICKETS).filter(([k]) => k !== "WC").map(([k, v]) => (
-                      <Chip key={k} on={l.tix.includes(k)} onClick={() => edit(l.key, { tix: l.tix.includes(k) ? l.tix.filter((t) => t !== k) : [...l.tix, k] })}>{v}</Chip>
+                      <Chip key={k} className="w-full text-sm" on={l.tix.includes(k)} onClick={() => edit(l.key, { tix: l.tix.includes(k) ? l.tix.filter((t) => t !== k) : [...l.tix, k] })}>{v}</Chip>
                     ))}
                   </div>
                 )}
@@ -132,7 +148,7 @@ export function ShiftForm({ projects, projectId, days, direct, crew }: {
               </div>
             ))}
             {lines.length < MAX_LINES
-              ? <button type="button" className="btn-ghost" onClick={addLine}>+ Add another kind of worker</button>
+              ? <button type="button" className="btn-ghost" onClick={addLine}><Plus size={20} strokeWidth={2.5} aria-hidden />Add another kind of worker</button>
               : <div className="text-sm text-steel">That's {MAX_LINES} kinds of worker, the most for one job. Post another job for more.</div>}
           </div>
         </Field>
@@ -143,9 +159,9 @@ export function ShiftForm({ projects, projectId, days, direct, crew }: {
           <Field label="Doing what?" hint="Everyone needs a White Card. That's automatic.">
             <select name="role" className="input">{ROLES.map((x) => <option key={x}>{x}</option>)}</select>
             {!needLic ? <button type="button" className="text-steel underline text-base mt-2" onClick={() => setNeedLic(true)}>Needs a licence? (forklift, EWP, dogging, scaffold)</button> : (
-              <div className="flex flex-wrap gap-2 mt-2">
+              <div className="grid grid-cols-2 gap-2 mt-2">
                 {Object.entries(TICKETS).filter(([k]) => k !== "WC").map(([k, v]) => (
-                  <Chip key={k} on={tix.includes(k)} onClick={() => setTix(tix.includes(k) ? tix.filter((t) => t !== k) : [...tix, k])}>{v}</Chip>
+                  <Chip key={k} className="w-full text-sm" on={tix.includes(k)} onClick={() => setTix(tix.includes(k) ? tix.filter((t) => t !== k) : [...tix, k])}>{v}</Chip>
                 ))}
               </div>
             )}
@@ -162,32 +178,43 @@ export function ShiftForm({ projects, projectId, days, direct, crew }: {
         </>
       )}
 
-      <Field label="Overtime — settle it now, not on payday"
-             hint="The worker sees this before he takes the shift. Agreeing it up front is what stops the argument on Friday.">
-        <div className="space-y-2">
-          {([["award", "Award overtime", "1.5× for two hours after 8, then 2×. The safe default."],
-             ["flat", "Same rate all day", "Every hour at the posted rate. Only legal if it beats the Award."],
-             ["custom", "My own deal", "Pick when overtime starts and what it pays."]] as const).map(([v, title, why]) => (
-            <button key={v} type="button" onClick={() => setOtMode(v)}
-              className={`w-full text-left rounded-2xl border-2 p-3 ${otMode === v ? "border-ink bg-ink text-white" : "border-line bg-white"}`}>
-              <div className="font-bold">{title}</div>
-              <div className={`text-sm ${otMode === v ? "text-white/70" : "text-steel"}`}>{why}</div>
-            </button>
-          ))}
-        </div>
-        {otMode === "custom" && (
-          <div className="grid grid-cols-2 gap-2 mt-2">
-            <div><div className="text-sm font-bold mb-1">Overtime starts after</div>
-              <input type="number" min={1} max={14} step={0.5} value={otAfter} onChange={(e) => setOtAfter(Number(e.target.value))} className="input num text-xl font-bold text-center" /></div>
-            <div><div className="text-sm font-bold mb-1">Then times</div>
-              <input type="number" min={1} max={3} step={0.25} value={otMult} onChange={(e) => setOtMult(Number(e.target.value))} className="input num text-xl font-bold text-center" /></div>
+      {/* Overtime is settled up front, but most posts keep the default — so it's one line until you want it. */}
+      {!otOpen ? (
+        <button type="button" onClick={() => setOtOpen(true)} aria-expanded={false}
+          className="card w-full flex items-center gap-3 text-left">
+          <Timer size={20} strokeWidth={2.25} aria-hidden className="shrink-0 text-steel" />
+          <span className="flex-1 font-bold leading-tight">Overtime: {otShort}</span>
+          <span className="text-steel underline shrink-0">Change</span>
+        </button>
+      ) : (
+        <Field label="Overtime — settle it now, not on payday"
+               hint="The worker sees this before he takes the shift. Agreeing it up front is what stops the argument on Friday.">
+          <div className="space-y-2">
+            {([["award", "Award overtime", "1.5× for two hours after 8, then 2×. The safe default."],
+               ["flat", "Same rate all day", "Every hour at the posted rate. Only legal if it beats the Award."],
+               ["custom", "My own deal", "Pick when overtime starts and what it pays."]] as const).map(([v, title, why]) => (
+              <button key={v} type="button" onClick={() => setOtMode(v)} aria-pressed={otMode === v}
+                className={`w-full text-left rounded-2xl border-2 p-3 ${otMode === v ? "border-ink bg-ink text-white" : "border-line bg-white"}`}>
+                <div className="font-bold">{title}</div>
+                <div className={`text-sm ${otMode === v ? "text-white/70" : "text-steel"}`}>{why}</div>
+              </button>
+            ))}
           </div>
-        )}
-        <div className="text-sm mt-2 rounded-xl bg-site px-3 py-2">
-          <b>Worker will see:</b> {otWords}
-          {otMode !== "award" && <div className="text-steel mt-0.5">We still top it up to the Award if the Award works out higher. You can pay more than the Award, never less.</div>}
-        </div>
-      </Field>
+          {otMode === "custom" && (
+            <div className="grid grid-cols-2 gap-2 mt-2">
+              <div><div className="text-sm font-bold mb-1">Overtime starts after</div>
+                <input type="number" min={1} max={14} step={0.5} value={otAfter} onChange={(e) => setOtAfter(Number(e.target.value))} className="input num text-xl font-bold text-center" /></div>
+              <div><div className="text-sm font-bold mb-1">Then times</div>
+                <input type="number" min={1} max={3} step={0.25} value={otMult} onChange={(e) => setOtMult(Number(e.target.value))} className="input num text-xl font-bold text-center" /></div>
+            </div>
+          )}
+          <div className="text-sm mt-2 rounded-xl bg-site px-3 py-2">
+            <b>Worker will see:</b> {otWords}
+            {otMode !== "award" && <div className="text-steel mt-0.5">We still top it up to the Award if the Award works out higher. You can pay more than the Award, never less.</div>}
+          </div>
+          <button type="button" className="btn-ghost btn-sm w-full mt-2" onClick={() => setOtOpen(false)}>Done with overtime</button>
+        </Field>
+      )}
 
       <Field label="Can workers ask for a different deal?" hint="Turn this off when you just need bodies at 6am and the rate is the rate.">
         <div className="seg grid-cols-2">
@@ -198,18 +225,21 @@ export function ShiftForm({ projects, projectId, days, direct, crew }: {
 
       <Field label="One line for the crew (optional)"><input name="note" className="input" placeholder="Steel caps. Park on Smith St." maxLength={120} /></Field>
 
-      <div className="say-dark">
-        <div className="say-sub">You're posting</div>
-        <div className="say-title">
-          {finding
-            ? `${linesInWords(lines)} · ${hours}h from ${say(start)} · ≈ $${Math.round(allUp).toLocaleString("en-AU")} for the day all up`
-            : `${chosen?.name.split(" ")[0] ?? direct?.name.split(" ")[0]} · ${hours}h from ${say(start)} · ≈ $${(r * hours).toFixed(0)} each for the day`}
+      {/* What it costs and the button to post it, in sight the whole way down the form. Sits above the tab bar. */}
+      <div className="stickybar fixed inset-x-0 z-30 bg-white border-t-2 border-line" style={{ bottom: "calc(66px + env(safe-area-inset-bottom))" }}>
+        <div className="max-w-md mx-auto px-4 py-3 flex items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-xl font-extrabold num leading-tight">
+              ≈ ${Math.round(cost).toLocaleString("en-AU")}<span className="text-base font-semibold text-steel"> for the day</span>
+            </div>
+            <div className="text-sm text-steel leading-tight mt-0.5">{summary}</div>
+          </div>
+          <button className="btn-primary w-auto shrink-0 px-5">{finding ? "Find workers" : "Send it"}</button>
         </div>
       </div>
-      <button className="btn-primary text-xl">{finding ? "Find workers" : "Send it"}</button>
     </form>
   );
 }
-function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
-  return <button type="button" onClick={onClick} className={`chip justify-center ${on ? "chip-on" : ""}`}>{children}</button>;
+function Chip({ on, onClick, children, className = "" }: { on: boolean; onClick: () => void; children: React.ReactNode; className?: string }) {
+  return <button type="button" onClick={onClick} aria-pressed={on} className={`chip justify-center ${on ? "chip-on" : ""} ${className}`}>{children}</button>;
 }

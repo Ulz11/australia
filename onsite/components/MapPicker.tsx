@@ -10,11 +10,17 @@ const workerUrl = () => `/maplibre/${getVersion()}/maplibre-gl-worker.mjs`;
 
 export const OSM_STYLE: StyleSpecification = {
   version: 8,
-  sources: { osm: { type: "raster", tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"], tileSize: 256, attribution: "© OpenStreetMap contributors" } },
+  // The attribution is rendered as HTML by MapLibre, so the copyright sign is written as an entity: the app's
+  // source files hold no pictographic characters at all (tests/unit/noEmoji.test.ts).
+  sources: { osm: { type: "raster", tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"], tileSize: 256, attribution: "&copy; OpenStreetMap contributors" } },
   layers: [{ id: "osm", type: "raster", source: "osm" }],
 };
 
-export type Pin = { id: string; lat: number; lng: number; label?: string; count?: number; kind?: "site" | "home" | "hot" };
+/**
+ * A pin on the map. `offer` is orange because that shift was offered to the person reading the map —
+ * "place" and "work" are ink, because a site that merely exists isn't waiting on anybody.
+ */
+export type Pin = { id: string; lat: number; lng: number; label?: string; count?: number; kind?: "site" | "home" | "place" | "offer" | "work" };
 
 /**
  * One map component for every screen: pick a point (onPick), show pins, optional radius circle.
@@ -42,8 +48,9 @@ export function MapView({
     m.on("load", () => {
       if (radiusKm) {
         m.addSource("radius", { type: "geojson", data: circle(center, radiusKm) });
-        m.addLayer({ id: "radius-fill", type: "fill", source: "radius", paint: { "fill-color": "#FF7A00", "fill-opacity": 0.08 } });
-        m.addLayer({ id: "radius-line", type: "line", source: "radius", paint: { "line-color": "#FF7A00", "line-width": 2, "line-dasharray": [2, 2] } });
+        // How far you'll travel is information, not something waiting on you: ink, not orange.
+        m.addLayer({ id: "radius-fill", type: "fill", source: "radius", paint: { "fill-color": "#15171A", "fill-opacity": 0.06 } });
+        m.addLayer({ id: "radius-line", type: "line", source: "radius", paint: { "line-color": "#15171A", "line-width": 2, "line-dasharray": [2, 2] } });
       }
     });
     map.current = m;
@@ -57,10 +64,15 @@ export function MapView({
     for (const p of pins) {
       const d = document.createElement("div");
       d.className = "cursor-pointer";
-      if (p.kind === "home") d.innerHTML = `<div class="w-4 h-4 rounded-full bg-ink border-2 border-white shadow"></div>`;
-      else if (p.kind === "hot" || (p.count ?? 0) > 0)
-        d.innerHTML = `<div class="flex items-center gap-1 bg-hv text-ink font-bold text-sm rounded-full pl-2 pr-2.5 py-1 shadow border-2 border-white">${p.count ?? ""}<span class="font-normal text-xs">${escapeHtml(p.label ?? "")}</span></div>`;
-      else d.innerHTML = `<div class="w-3.5 h-3.5 rounded-full bg-steel border-2 border-white shadow" title="${escapeHtml(p.label ?? "")}"></div>`;
+      const label = escapeHtml(p.label ?? "");
+      if (p.kind === "home") d.innerHTML = `<div class="w-4 h-4 rounded-full bg-ink border-2 border-white shadow" title="Home"></div>`;
+      else if (p.kind === "offer")   // a shift offered to this worker: the one thing on the map that wants them
+        d.innerHTML = `<div class="flex items-center gap-1 bg-hv text-ink font-bold text-sm rounded-full pl-2 pr-2.5 py-1 shadow border-2 border-ink">${p.count ?? ""} for you<span class="font-normal text-xs">${label}</span></div>`;
+      else if (p.kind === "place")
+        d.innerHTML = `<div class="flex items-center gap-1 bg-ink text-white font-bold text-xs rounded-full px-2.5 py-1 shadow border-2 border-white">${label}</div>`;
+      else if (p.kind === "work" || (p.count ?? 0) > 0)
+        d.innerHTML = `<div class="flex items-center gap-1 bg-white text-ink font-bold text-sm rounded-full pl-2 pr-2.5 py-1 shadow border-2 border-ink">${p.count ?? ""}<span class="font-normal text-xs">${label}</span></div>`;
+      else d.innerHTML = `<div class="w-3.5 h-3.5 rounded-full bg-steel border-2 border-white shadow" title="${label}"></div>`;
       d.onclick = (ev) => { ev.stopPropagation(); onPinClick?.(p.id); };
       markers.current.push(new Marker({ element: d }).setLngLat([p.lng, p.lat]).addTo(m));
     }
@@ -71,7 +83,7 @@ export function MapView({
     pickMarker.current?.remove(); pickMarker.current = null;
     if (picked) {
       const d = document.createElement("div");
-      d.innerHTML = `<div class="w-6 h-6 rounded-full bg-hv border-[3px] border-ink shadow-lg"></div>`;
+      d.innerHTML = `<div class="w-6 h-6 rounded-full bg-ink border-[3px] border-white shadow-lg ring-2 ring-ink"></div>`;
       pickMarker.current = new Marker({ element: d }).setLngLat(picked).addTo(m);
     }
   }, [picked]);

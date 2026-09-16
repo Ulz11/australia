@@ -2,6 +2,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { LazyMap } from "@/components/LazyMap";
+import type { Pin } from "@/components/MapPicker";
 import { ShiftCard, type S } from "../Calendar";
 import { takeShift } from "@/actions/worker";
 import { fmtDay, todayIso } from "@/lib/util";
@@ -17,7 +18,13 @@ export function Explore({ home, radiusKm, sites, shifts, q }: { home: [number, n
   const router = useRouter();
   const today = todayIso();
   const counts = useMemo(() => { const m: Record<string, number> = {}; for (const s of shifts) if (!s.mine) m[s.project_id] = (m[s.project_id] ?? 0) + 1; return m; }, [shifts]);
-  const pins = [{ id: "home", lat: home[1], lng: home[0], kind: "home" as const }, ...sites.map((s) => ({ id: s.id, lat: s.lat, lng: s.lng, label: s.name, count: counts[s.id] ?? 0 }))];
+  // A site is orange only where a shift on it was offered to this worker; open work nobody asked them about is ink.
+  const offered = useMemo(() => { const m: Record<string, number> = {}; for (const s of shifts) if (!s.mine && s.notified) m[s.project_id] = (m[s.project_id] ?? 0) + 1; return m; }, [shifts]);
+  const pins: Pin[] = [{ id: "home", lat: home[1], lng: home[0], kind: "home" as const }, ...sites.map((s) => ({
+    id: s.id, lat: s.lat, lng: s.lng, label: s.name,
+    count: offered[s.id] ?? counts[s.id] ?? 0,
+    kind: (offered[s.id] ? "offer" : counts[s.id] ? "work" : "site") as Pin["kind"],
+  }))];
   const list = (site ? shifts.filter((s) => s.project_id === site) : shifts).filter((s) => !s.mine);
   const take = (id: string) => start(async () => { setErr(null); const r = await takeShift(id); if (r?.error) setErr(r.error); });
   return (
@@ -32,7 +39,10 @@ export function Explore({ home, radiusKm, sites, shifts, q }: { home: [number, n
       {view === "map" && (
         <>
           <LazyMap center={home} zoom={radiusKm > 30 ? 9 : 11} radiusKm={radiusKm} pins={pins} onPinClick={(id) => setSite(id === "home" ? null : id)} className="h-72" />
-          <div className="text-steel">Black dot is home. <b className="text-ink">Orange pins have work</b> — tap one. Grey dots are sites with nothing open right now.</div>
+          <div className="text-steel">
+            Black dot is home. <b className="text-ink">Orange pins are shifts a boss offered you.</b> White pins have work open to anyone — tap one.
+            Grey dots are sites with nothing open right now.
+          </div>
         </>
       )}
       {site && (

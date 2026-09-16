@@ -1,46 +1,55 @@
 "use client";
 import { useState, useTransition } from "react";
+import { CloudLightning, CloudRain, Sun, Thermometer, TriangleAlert, Wind, type LucideIcon } from "lucide-react";
 import { markWeather, clearWeather } from "@/actions/boss";
 import { Field } from "@/components/ui";
 
-const KINDS: [string, string, string][] = [
-  ["rain", "🌧️", "Rain"], ["wind", "💨", "Wind"], ["heat", "🥵", "Heat"], ["storm", "⛈️", "Storm"], ["other", "⚠️", "Something else"],
+export const KINDS: { v: string; icon: LucideIcon; label: string }[] = [
+  { v: "rain", icon: CloudRain, label: "Rain" },
+  { v: "wind", icon: Wind, label: "Wind" },
+  { v: "heat", icon: Thermometer, label: "Heat" },
+  { v: "storm", icon: CloudLightning, label: "Storm" },
+  { v: "other", icon: TriangleAlert, label: "Something else" },
 ];
+export const weatherKind = (stop: string | null) => KINDS.find((k) => k.v === stop) ?? KINDS[4];
 
 /**
  * Weather stopped work. The app doesn't decide the money — it records that the day
  * was cut short and why, so the hours the boss approves have a reason next to them.
+ *
+ * Two pieces: the note that says what happened (up with the shift's state), and the row
+ * down in the quiet list of things you rarely press.
  */
-export function Weather({ shiftId, stop, note }: { shiftId: string; stop: string | null; note: string | null }) {
+export function WeatherRow({ shiftId, stop }: { shiftId: string; stop: string | null }) {
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState("rain");
   const [pending, start] = useTransition();
 
-  if (stop) {
-    const k = KINDS.find((x) => x[0] === stop);
+  if (stop)
     return (
-      <div className="say-dark">
-        <div className="say-sub">Work stopped</div>
-        <div className="say-title">{k?.[1]} {k?.[2]} {note ? `— ${note}` : ""}</div>
-        <div className="say-sub">Everyone on this shift was told. Set each worker's hours below — you decide the number, we write it down.</div>
-        <button disabled={pending} className="btn bg-white text-ink btn-sm w-full mt-3" onClick={() => start(() => clearWeather(shiftId))}>
-          Work went ahead after all
-        </button>
-      </div>
+      <button disabled={pending} className="act" onClick={() => start(() => clearWeather(shiftId))}>
+        <Sun size={20} strokeWidth={2.25} aria-hidden className="shrink-0 text-steel" />
+        <span className="flex-1">Work went ahead after all<span className="block text-sm font-normal text-steel">Takes the weather note off this shift.</span></span>
+      </button>
     );
-  }
+
   if (!open)
-    return <button className="btn-ghost" onClick={() => setOpen(true)}>🌧️ Weather stopped work</button>;
+    return (
+      <button className="act" onClick={() => setOpen(true)}>
+        <CloudRain size={20} strokeWidth={2.25} aria-hidden className="shrink-0 text-steel" />
+        <span className="flex-1">Weather stopped work<span className="block text-sm font-normal text-steel">Tells the crew and helps you set the hours.</span></span>
+      </button>
+    );
 
   return (
-    <form action={markWeather} className="card space-y-3 border-2 border-ink">
+    <form action={markWeather} className="p-4 space-y-3">
       <input type="hidden" name="shift_id" value={shiftId} />
       <input type="hidden" name="weather_stop" value={kind} />
       <div className="text-xl font-extrabold">What stopped the job?</div>
       <div className="grid grid-cols-3 gap-2">
-        {KINDS.map(([v, icon, label]) => (
-          <button key={v} type="button" onClick={() => setKind(v)} className={`chip justify-center w-full text-sm ${kind === v ? "chip-on" : ""}`}>
-            {icon} {label}
+        {KINDS.map(({ v, icon: Icon, label }) => (
+          <button key={v} type="button" onClick={() => setKind(v)} className={`chip justify-center gap-1.5 w-full text-sm ${kind === v ? "chip-on" : ""}`}>
+            <Icon size={18} strokeWidth={2.25} aria-hidden className="shrink-0" />{label}
           </button>
         ))}
       </div>

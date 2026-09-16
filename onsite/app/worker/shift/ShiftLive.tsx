@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useOptimistic, useState, useTransition } from "react";
+import { Check } from "lucide-react";
 import { clockIn, clockOut, cancelBooking, workerLogCall } from "@/actions/worker";
 import { LazyMap } from "@/components/LazyMap";
 import { CallLink } from "@/components/CallLink";
@@ -32,7 +33,7 @@ export function ShiftLive({ b, primary, today }: { b: B; primary: boolean; today
   return (
     <div className="space-y-3">
       <div className="card">
-        <div className="text-hv-dark text-sm font-extrabold uppercase tracking-widest">{b.day === today ? "Today" : fmtDay(b.day)} · {fmtTime(b.start_time)} start</div>
+        <div className="label">{b.day === today ? "Today" : fmtDay(b.day)} · {fmtTime(b.start_time)} start</div>
         <div className="text-2xl font-extrabold">{b.site}</div>
         <div className="text-steel">{b.address}</div>
         <div className="mt-2 text-lg">{b.role} · {b.hours} hours · <b className="num">${b.rate.toFixed(2)}/h</b></div>
@@ -54,19 +55,34 @@ export function ShiftLive({ b, primary, today }: { b: B; primary: boolean; today
           <div className="say-sub mt-2">Tap when you finish. Your hours go to the boss.</div>
         </div>
       )}
+      {/* Nothing is waiting on the worker here — the hours are with the boss now. Grey, with a tick. */}
       {status === "clocked_out" && (
-        <div className="say-orange">
-          <div className="say-sub">Done for the day</div>
-          <div className="say-title">{Number(b.hours_worked ?? 0) || "…"} hours sent to {b.boss_name.split(" ")[0]}</div>
-          <div className="say-sub">≈ ${(Number(b.hours_worked ?? 0) * b.rate).toFixed(0)}. Once approved it shows in Me → Owed to me.</div>
+        <div className="say-grey">
+          <div className="flex items-start gap-3">
+            <Check size={24} strokeWidth={2.25} aria-hidden className="shrink-0 mt-0.5 text-go" />
+            <div className="min-w-0 flex-1">
+              <div className="say-sub">Done for the day</div>
+              <div className="say-title">{Number(b.hours_worked ?? 0) || "…"} hours sent to {b.boss_name.split(" ")[0]}</div>
+              <div className="say-sub">About ${(Number(b.hours_worked ?? 0) * b.rate).toFixed(0)}. Once the boss approves it, it shows in Me, under Owed to me.</div>
+            </div>
+          </div>
         </div>
       )}
 
-      {primary && <LazyMap center={[b.lng, b.lat]} zoom={14} pins={[{ id: "s", lat: b.lat, lng: b.lng, kind: "hot", label: b.site }]} className="h-40" />}
+      {primary && <LazyMap center={[b.lng, b.lat]} zoom={14} pins={[{ id: "s", lat: b.lat, lng: b.lng, kind: "place", label: b.site }]} className="h-40" />}
 
       <div className="grid grid-cols-2 gap-2">
         <CallLink phone={b.boss_phone} name={b.boss_name} onCall={workerLogCall.bind(null, b.boss_id, b.id)} className="btn-ghost btn-sm w-full" />
-        {status === "accepted" && <ConfirmButton action={cancelBooking.bind(null, b.id)} msg="Pull out of this shift? The boss will be told and it goes on your record." className="btn-danger btn-sm w-full">Can't make it</ConfirmButton>}
+        {status === "accepted" && (
+          <ConfirmButton action={cancelBooking.bind(null, b.id)} className="btn-danger btn-sm w-full"
+            title="Pull out of this shift?"
+            details={[
+              `${b.boss_name.split(" ")[0]} gets a message straight away.`,
+              "Your spot goes back out to other workers nearby.",
+              "It counts on your record as pulling out — bosses see how often that happens.",
+            ]}
+            confirmLabel="Yes, pull out" cancelLabel="Keep my shift">Can't make it</ConfirmButton>
+        )}
       </div>
     </div>
   );

@@ -1,14 +1,14 @@
 import { Suspense } from "react";
 import { requireRole } from "@/lib/session";
 import { sql } from "@/lib/db";
-import { TabBar } from "@/components/TabBar";
+import { TabBar, type Tab } from "@/components/TabBar";
 import { SessionRefresh } from "@/components/SessionRefresh";
 
-const tabs = (matches = 0, live = 0) => [
-  { href: "/worker", label: "Calendar", icon: "📅", badge: matches },
-  { href: "/worker/explore", label: "Map", icon: "🗺️" },
-  { href: "/worker/shift", label: "My shift", icon: "⏱️", badge: live },
-  { href: "/worker/me", label: "Me", icon: "🪪" },
+const tabs = (matches = 0, live = 0): Tab[] => [
+  { href: "/worker", label: "Calendar", icon: "calendar", badge: matches },
+  { href: "/worker/explore", label: "Map", icon: "map" },
+  { href: "/worker/shift", label: "My shift", icon: "shift", badge: live },
+  { href: "/worker/me", label: "Me", icon: "card" },
 ];
 
 /** Badge counts stream in after the page — the layout never blocks the page's own query. */

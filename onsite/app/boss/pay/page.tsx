@@ -1,8 +1,9 @@
 import Link from "next/link";
+import { ChevronLeft, ChevronRight, CircleAlert } from "lucide-react";
 import { sql } from "@/lib/db";
 import { requireRole } from "@/lib/session";
 import { Header, Page, Empty } from "@/components/Header";
-import { BigMoney } from "@/components/ui";
+import { BigMoney, Flag } from "@/components/ui";
 import { money, SUPER_RATE } from "@/lib/award";
 import { payForShift } from "@/lib/rules";
 import { addDays, fmtDay, fmtRange, todayIso, weekStart } from "@/lib/util";
@@ -15,7 +16,7 @@ export default async function Pay({ searchParams }: { searchParams: Promise<{ we
   const { week } = await searchParams;
   const ws = weekStart(week || todayIso());
   const we = addDays(ws, 6);
-  const rows = await sql`SELECT b.id, b.worker_id, b.hours_approved, b.status, b.pay_reason, s.day,
+  const rows = await sql`SELECT b.id, b.worker_id, b.hours_approved, b.status, b.pay_reason, b.disputed_at, s.day,
                COALESCE(b.agreed_rate, s.rate) AS rate, s.ot_mode, s.ot_after_hours, s.ot_multiplier,
                s.weather_stop, us.name, c.type
         FROM bookings b JOIN shifts s ON s.id = b.shift_id JOIN users us ON us.id = b.worker_id
@@ -43,14 +44,15 @@ export default async function Pay({ searchParams }: { searchParams: Promise<{ we
         <div className="card py-3 space-y-2">
           <div className="text-center font-bold num">{fmtRange(ws, we)}</div>
           <div className="grid grid-cols-2 gap-2">
-            <Link href={`/boss/pay?week=${addDays(ws, -7)}`} className="btn-ghost btn-sm w-full whitespace-nowrap">‹ Last week</Link>
-            <Link href={`/boss/pay?week=${addDays(ws, 7)}`} className="btn-ghost btn-sm w-full whitespace-nowrap">Next week ›</Link>
+            <Link href={`/boss/pay?week=${addDays(ws, -7)}`} className="btn-ghost btn-sm w-full whitespace-nowrap"><ChevronLeft size={20} strokeWidth={2.5} aria-hidden />Last week</Link>
+            <Link href={`/boss/pay?week=${addDays(ws, 7)}`} className="btn-ghost btn-sm w-full whitespace-nowrap">Next week<ChevronRight size={20} strokeWidth={2.5} aria-hidden /></Link>
           </div>
         </div>
 
         {/* What you owe is the number you act on, so it gets the width. The other two are context. */}
+        {/* The only orange on this screen, and only while money is actually owed. */}
         <div className="space-y-2">
-          <BigMoney n={totals.owed} label="Still to pay" hot={totals.owed > 0} hero />
+          <BigMoney n={totals.owed} label="Still to pay" hot={totals.owed > 0} hero icon={totals.owed > 0 ? CircleAlert : undefined} />
           <div className="grid grid-cols-2 gap-2">
             <BigMoney n={totals.gross} label="Wages this week" />
             <BigMoney n={totals.sup} label="Super on top" />
@@ -71,10 +73,11 @@ export default async function Pay({ searchParams }: { searchParams: Promise<{ we
               {w.days.map((d) => { const p = payForShift(Number(d.hours_approved), Number(d.rate), terms(d as never)); return (
                 <div key={d.id} className="py-1.5">
                   <div className="flex justify-between">
-                    <span>{fmtDay(d.day)} · {Number(d.hours_approved)}h{p.ot150 + p.ot200 > 0 ? <span className="text-hv-dark text-sm"> ({p.ot150 + p.ot200}h overtime)</span> : null}</span>
+                    <span>{fmtDay(d.day)} · {Number(d.hours_approved)}h{p.ot150 + p.ot200 > 0 ? <span className="text-steel text-sm"> ({p.ot150 + p.ot200}h overtime)</span> : null}</span>
                     <span>{money(p.gross)}</span>
                   </div>
                   <div className="text-xs text-steel">{p.words}{p.appliedFloor ? " — topped up to the Award" : ""}{d.pay_reason ? ` · ${d.pay_reason}` : ""}</div>
+                  {d.disputed_at && <Flag tone="orange" className="mt-1">{w.name.split(" ")[0]} disagrees with these hours — give them a call</Flag>}
                 </div>); })}
               <div className="py-2 flex justify-between text-lg font-extrabold"><span>{w.hours}h</span><span>{money(w.gross)}</span></div>
               <div className="text-sm text-steel pt-1">+ {money(w.superAmt)} super to their fund</div>

@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { ExternalLink, RotateCw } from "lucide-react";
 
 type Person = { id: string; phone: string; name: string; sub: string };
 type Counts = { bosses: number; workers: number; sites: number; open_shifts: number; live_bookings: number; to_approve: number; owed: number; open_offers: number; cards_to_check: number; notifs_24h: number };
@@ -99,7 +100,7 @@ export function Console({ bosses, workers, counts: c0, env, tests, resultsHtml, 
               <b>Walk the loop</b>
               <ol>
                 <li>Boss → <b>Need workers</b> → Find workers</li>
-                <li>Worker → orange dot on the calendar → <b>Take it</b></li>
+                <li>Worker → <b>Offers for you</b> → <b>Take it</b></li>
                 <li>Worker → My shift → Clock in → Clock out</li>
                 <li>Boss → the shift → check hours → <b>Approve</b></li>
                 <li>Boss → Pay → <b>Mark paid</b> · Worker → Me → Owed</li>
@@ -115,7 +116,7 @@ export function Console({ bosses, workers, counts: c0, env, tests, resultsHtml, 
       <section id="money" className="cr-section">
         <div className="cr-h">
           <h1>Three scenarios</h1>
-          <p>$1 a match, $33 a month, costed against real Stripe and Twilio pricing. Every assumption is a slider. <a href="/money-model.html" target="_blank" rel="noreferrer">Open full screen ↗</a></p>
+          <p>$1 a match, $33 a month, costed against real Stripe and Twilio pricing. Every assumption is a slider. <a href="/money-model.html" target="_blank" rel="noreferrer">Open full screen <ExternalLink size={14} strokeWidth={2.5} aria-hidden /></a></p>
         </div>
         <iframe className="cr-money" src="/money-model.html" title="OnSite money model" />
       </section>
@@ -138,7 +139,7 @@ export function Console({ bosses, workers, counts: c0, env, tests, resultsHtml, 
             <ul className="cr-env">
               <Row ok={env.db} label="Database" hint="Neon Postgres + PostGIS, Sydney" />
               <Row ok={!!env.sms} label={`SMS (${env.sms ?? "no provider"})`} hint={env.sms ? "codes go by text" : env.devOtp ? "stubbed — code shows on screen" : "not set: nobody can sign in"} warn={!env.sms && !env.devOtp} />
-              <Row ok={env.nsw} label="White Card check (SafeWork NSW)" hint={env.nsw ? "automatic for NSW White Cards" : "no API key — cards marked 'on file, not checked'"} />
+              <Row ok={env.nsw} label="White Card check (SafeWork NSW)" hint={env.nsw ? "automatic for NSW White Cards" : "no API key — cards marked 'not checked yet'"} />
               <Row ok={env.push} label="Phone alerts (web push)" hint={env.push ? "buzzes phones that turned alerts on; texts shift offers otherwise" : "no VAPID keys — shift offers go by text only"} warn={!env.push && !env.sms} />
               <Row ok={env.qpay} label="Payments (QPay)" hint={env.qpay ? "invoices in MNT, confirmed via payment check" : "no credentials — billing off"} />
               <Row ok={env.cron} label="Matching cron secret" hint="widens matching every 20 min" />
@@ -188,8 +189,8 @@ function Phone({ label, tone, who, people, onPick, frame, reload, onReload }: {
         <select value={who.phone} onChange={(e) => onPick(people.find((p) => p.phone === e.target.value)!)} aria-label={`${label} account`}>
           {people.map((p) => <option key={p.phone} value={p.phone}>{p.name} · {local(p.phone)}</option>)}
         </select>
-        <button className="cr-icon" onClick={onReload} title="Reload">↻</button>
-        <a className="cr-icon" href={src} target="_blank" rel="noreferrer" title="Open in its own tab">↗</a>
+        <button className="cr-icon" onClick={onReload} title="Reload" aria-label="Reload this phone"><RotateCw size={16} strokeWidth={2.5} aria-hidden /></button>
+        <a className="cr-icon" href={src} target="_blank" rel="noreferrer" title="Open in its own tab" aria-label="Open in its own tab"><ExternalLink size={16} strokeWidth={2.5} aria-hidden /></a>
       </div>
       <div className="cr-phone">
         <div className="cr-notch" />

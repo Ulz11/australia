@@ -1,3 +1,4 @@
+import { Handshake } from "lucide-react";
 import { sql } from "@/lib/db";
 import { requireRole } from "@/lib/session";
 import { Header, Page, Empty } from "@/components/Header";
@@ -34,7 +35,7 @@ export default async function Offers() {
         ) : (
           <>
             {live.length > 0
-              ? <Say tone="orange" title={`${live.length} worker${live.length > 1 ? "s want" : " wants"} to talk terms`} sub="Answer fast — they're looking at other jobs too." />
+              ? <Say tone="orange" icon={Handshake} title={`${live.length} worker${live.length > 1 ? "s want" : " wants"} to talk terms`} sub="Answer fast — they're looking at other jobs too." />
               : <Say tone="grey" title="Nothing waiting" sub="Old requests are below." />}
             {rows.map((o) => (
               <OfferCard key={o.id} o={{

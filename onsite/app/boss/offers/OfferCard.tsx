@@ -2,8 +2,7 @@
 import { useState, useTransition } from "react";
 import { acceptOffer, declineOffer, counterOffer } from "@/actions/boss";
 import { money, AWARD_CASUAL_FLOOR } from "@/lib/award";
-import { initials } from "@/lib/util";
-import { Field } from "@/components/ui";
+import { Avatar, Field, Flag, type Tone } from "@/components/ui";
 
 export type BO = {
   id: string; status: string; message: string | null;
@@ -24,22 +23,20 @@ export function OfferCard({ o }: { o: BO }) {
   const dayNow = o.shift_rate * o.shift_hours, dayAsk = asked * hours;
   const extra = dayAsk - dayNow;
 
-  const label = { pending: null, accepted: ["Agreed", "bg-go text-white"], declined: ["You said no", "bg-site text-steel"],
-    withdrawn: ["Pulled out", "bg-site text-steel"], countered: ["You countered", "bg-ink text-white"], expired: ["Too late", "bg-site text-steel"] }[o.status] as [string, string] | null | undefined;
+  const label = { pending: null, accepted: ["Agreed", "green"], declined: ["You said no", "grey"],
+    withdrawn: ["Pulled out", "grey"], countered: ["You countered", "dark"], expired: ["Too late", "grey"] }[o.status] as [string, Tone] | null | undefined;
 
   return (
     <div className="card space-y-3">
       <div className="flex items-center gap-3">
-        <div className="w-12 h-12 rounded-full bg-slab text-white overflow-hidden flex items-center justify-center font-bold shrink-0">
-          {o.photo ? <img src={o.photo} alt="" className="w-full h-full object-cover" /> : initials(o.worker)}
-        </div>
+        <Avatar name={o.worker} photo={o.photo} />
         <div className="flex-1 min-w-0">
           <div className="text-lg font-bold truncate">{o.worker}</div>
           <div className="text-sm text-steel truncate">
             {o.score != null ? `Turns up ${o.score}% · ${o.done} shifts` : "New — first shift"}{o.years ? ` · ${o.years}y on the tools` : ""}
           </div>
         </div>
-        {label && <span className={`inline-flex items-center rounded-lg px-2.5 py-1 text-sm font-bold shrink-0 ${label[1]}`}>{label[0]}</span>}
+        {label && <Flag tone={label[1]} className="shrink-0">{label[0]}</Flag>}
       </div>
 
       <div className="text-steel">{o.when} · {o.site} · {o.role}</div>

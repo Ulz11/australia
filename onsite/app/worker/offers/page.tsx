@@ -1,3 +1,4 @@
+import { Hourglass } from "lucide-react";
 import { sql } from "@/lib/db";
 import { requireRole } from "@/lib/session";
 import { Header, Page, Empty } from "@/components/Header";
@@ -31,7 +32,8 @@ export default async function MyOffers() {
           </Empty>
         ) : (
           <>
-            {live.length > 0 && <Say tone="orange" title={`${live.length} waiting on a boss`} sub="You'll get a message the moment one answers." />}
+            {/* Waiting on the boss, not on this worker: nothing for them to do, so nothing orange. */}
+            {live.length > 0 && <Say tone="grey" icon={Hourglass} title={`${live.length} waiting on a boss`} sub="You'll get a message the moment one answers." />}
             {live.map((o) => <OfferRow key={o.id} o={pack(o)} />)}
             {past.length > 0 && <div className="text-xl font-extrabold pt-2">Done</div>}
             {past.map((o) => <OfferRow key={o.id} o={pack(o)} />)}

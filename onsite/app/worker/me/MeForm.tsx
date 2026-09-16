@@ -10,7 +10,7 @@ export function MeForm({ name, radius, visa, home }: { name: string; radius: num
   return (
     <form action={updateMe} className="card space-y-5">
       <Field label={`How far will you travel? ${r} km`} hint="Shifts further than this are never shown to you.">
-        <input type="range" name="radius_km" min={5} max={100} step={5} value={r} onChange={(e) => setR(Number(e.target.value))} className="w-full h-3 accent-[#FF7A00]" />
+        <input type="range" name="radius_km" min={5} max={100} step={5} value={r} onChange={(e) => setR(Number(e.target.value))} className="w-full h-3 accent-ink" />
       </Field>
       <Field label="Where you live">
         {editHome ? <AddressPin initial={home} precision="suburb" /> : (

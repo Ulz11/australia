@@ -8,10 +8,10 @@ export default async function BossLayout({ children }: { children: React.ReactNo
       {children}
       <SessionRefresh />
       <TabBar tabs={[
-        { href: "/boss", label: "Sites", icon: "📍" },
-        { href: "/boss/workers", label: "Workers", icon: "👷" },
-        { href: "/boss/pay", label: "Pay", icon: "💵" },
-        { href: "/boss/me", label: "Me", icon: "⚙️" },
+        { href: "/boss", label: "Jobs", icon: "jobs" },
+        { href: "/boss/workers", label: "Workers", icon: "workers" },
+        { href: "/boss/pay", label: "Pay", icon: "pay" },
+        { href: "/boss/me", label: "Me", icon: "me" },
       ]} />
     </>
   );

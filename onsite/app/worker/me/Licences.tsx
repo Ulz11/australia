@@ -1,9 +1,11 @@
 "use client";
-import { useState, useTransition } from "react";
+import { useState } from "react";
+import { Plus } from "lucide-react";
 import { saveLicence, removeLicence } from "@/actions/worker";
 import { TICKETS } from "@/lib/award";
 import { licenceWords, STATES, AUTO_KINDS, REGULATOR, canAutoCheck, type LicenceStatus } from "@/lib/verify";
-import { Field } from "@/components/ui";
+import { ConfirmButton } from "@/components/ConfirmButton";
+import { Field, Flag } from "@/components/ui";
 
 export type Lic = {
   kind: string; number: string | null; issued_state: string | null; expires_on: string | null;
@@ -30,17 +32,15 @@ export function Licences({ licences, name }: { licences: Lic[]; name: string }) 
         return (
           <div key={l.kind} className={`rounded-2xl border-2 p-3 ${tone}`}>
             <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <div className="text-lg font-bold">{TICKETS[l.kind] ?? l.kind}</div>
-                <div className="text-steel num text-sm">
-                  {l.number ? `No. ${l.number}` : "No number"}{l.issued_state ? ` · ${l.issued_state}` : ""}{l.expires_on ? ` · expires ${l.expires_on}` : ""}
-                </div>
-              </div>
-              <span className={`inline-flex items-center rounded-lg px-2.5 py-1 text-sm font-bold shrink-0 ${
-                w.tone === "green" ? "bg-go text-white" : w.tone === "red" ? "bg-warn text-white" : "bg-site text-steel"}`}>{w.label}</span>
+              <div className="text-lg font-bold min-w-0">{TICKETS[l.kind] ?? l.kind}</div>
+              <Flag tone={w.tone} className="shrink-0">{w.label}</Flag>
+            </div>
+            {/* The number gets the full width: badge and card name share the line above it. */}
+            <div className="text-steel num text-sm">
+              {l.number ? `No. ${l.number}` : "No number"}{l.issued_state ? ` · ${l.issued_state}` : ""}{l.expires_on ? ` · expires ${l.expires_on}` : ""}
             </div>
             <div className="text-sm text-steel mt-1">{l.check_note || w.detail}</div>
-            <div className="flex gap-2 mt-2">
+            <div className="grid grid-cols-2 gap-2 mt-2">
               <button type="button" className="btn-ghost btn-sm w-full" onClick={() => setOpen(open === l.kind ? null : l.kind)}>{open === l.kind ? "Close" : "Edit"}</button>
               <RemoveBtn kind={l.kind} />
             </div>
@@ -53,8 +53,8 @@ export function Licences({ licences, name }: { licences: Lic[]; name: string }) 
         <Field label="Add a card">
           <div className="grid grid-cols-2 gap-2">
             {missing.map((k) => (
-              <button key={k} type="button" className={`chip justify-center w-full text-sm ${open === k ? "chip-on" : ""}`} onClick={() => setOpen(open === k ? null : k)}>
-                + {TICKETS[k]}
+              <button key={k} type="button" className={`chip justify-center gap-1.5 w-full text-sm ${open === k ? "chip-on" : ""}`} onClick={() => setOpen(open === k ? null : k)}>
+                <Plus size={18} strokeWidth={2.5} aria-hidden className="shrink-0" />{TICKETS[k]}
               </button>
             ))}
           </div>
@@ -64,19 +64,25 @@ export function Licences({ licences, name }: { licences: Lic[]; name: string }) 
 
       <p className="text-xs text-steel">
         We check NSW <b>White Cards</b> against the SafeWork register. Everything else we confirm by hand — until then a card
-        shows as "on file, not checked". Always carry the real card on site.
+        shows as "not checked yet". Always carry the real card on site.
       </p>
     </div>
   );
 }
 
 function RemoveBtn({ kind }: { kind: string }) {
-  const [pending, start] = useTransition();
+  const card = TICKETS[kind] ?? kind;
   return (
-    <button type="button" disabled={pending} className="btn-danger btn-sm w-full"
-      onClick={() => { if (confirm("Remove this card? Shifts that need it won't be offered to you.")) start(() => removeLicence(kind)); }}>
-      Remove
-    </button>
+    <ConfirmButton action={removeLicence.bind(null, kind)} className="btn-danger btn-sm w-full"
+      title={`Remove your ${card}?`}
+      details={[
+        "The number you typed in is deleted from OnSite.",
+        kind === "WC"
+          ? "Shifts still assume you hold a White Card — carry the real one on site."
+          : `Shifts that need a ${card} stop being offered to you.`,
+        "You can put it back any time.",
+      ]}
+      confirmLabel="Remove the card" cancelLabel="Keep it">Remove</ConfirmButton>
   );
 }
 

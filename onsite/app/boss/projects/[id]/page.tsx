@@ -46,7 +46,7 @@ export default async function Project({ params, searchParams }: { params: Promis
     <>
       <Header title={p.name} back="/boss" />
       <Page>
-        <LazyMap center={[p.lng, p.lat]} zoom={14} pins={[{ id: p.id, lat: p.lat, lng: p.lng, kind: "hot", label: p.name }]} className="h-44" />
+        <LazyMap center={[p.lng, p.lat]} zoom={14} pins={[{ id: p.id, lat: p.lat, lng: p.lng, kind: "place", label: p.name }]} className="h-44" />
         <div className="text-steel">{p.address}</div>
         <CrewTarget projectId={p.id} ownCrew={crew.own_crew}
           status={crewStatus({ crew_target: p.crew_target, own_crew: crew.own_crew, booked_ahead: crew.booked_ahead })} />
@@ -68,7 +68,14 @@ export default async function Project({ params, searchParams }: { params: Promis
           </div>
         )}
         {err && <Say tone="red" title={`Can't hide this site yet — ${err} shift${err === "1" ? "" : "s"} still coming up.`} sub="Cancel them, or wait until they're done." />}
-        <ConfirmButton action={archiveProject.bind(null, p.id)} className="btn-ghost" msg="Hide this site? Past records are kept.">Job finished — hide this site</ConfirmButton>
+        <ConfirmButton action={archiveProject.bind(null, p.id)} className="btn-ghost" danger={false}
+          title={`Hide ${p.name}?`}
+          details={[
+            "Every shift, hour and dollar from this site stays on record.",
+            "You can't post new work here once it's hidden, and workers stop seeing it on the map.",
+            "Shifts still coming up stop us hiding it — cancel or finish those first.",
+          ]}
+          confirmLabel="Hide the site" cancelLabel="Keep it">Job finished — hide this site</ConfirmButton>
       </Page>
     </>
   );

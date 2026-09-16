@@ -2,7 +2,8 @@ import Link from "next/link";
 import { sql } from "@/lib/db";
 import { requireRole } from "@/lib/session";
 import { Header, Page } from "@/components/Header";
-import { Say, Section } from "@/components/ui";
+import { Avatar, Chev, Say, Section } from "@/components/ui";
+import { Check, CircleAlert } from "lucide-react";
 import { myBookings } from "@/lib/workerQueries";
 import { MeForm } from "./MeForm";
 import { ProfileCard } from "./ProfileCard";
@@ -41,16 +42,14 @@ export default async function Me() {
       <Header title="Me" />
       <Page>
         <div className="card flex items-center gap-3">
-          <div className="w-16 h-16 rounded-2xl bg-site border border-line overflow-hidden shrink-0 flex items-center justify-center">
-            {w.photo ? <img src={w.photo} alt="" className="w-full h-full object-cover" /> : <span className="text-3xl" aria-hidden>👷</span>}
-          </div>
+          <Avatar name={u.name!} photo={w.photo} size={64} />
           <div className="flex-1 min-w-0"><div className="text-xl font-extrabold truncate">{u.name}</div><div className="text-steel">{u.phone}</div></div>
           <div className="text-right shrink-0"><div className="font-extrabold text-3xl num">{w.score != null ? `${w.score}%` : "New"}</div><div className="text-sm text-steel">turn-up · {w.completed ?? 0} done</div></div>
         </div>
 
         <Link href="/worker/offers" className="card flex items-center gap-3">
           <div className="flex-1"><div className="text-lg font-bold">My deal requests</div><div className="text-steel">Jobs where you asked for different pay or hours.</div></div>
-          <span className="text-steel text-2xl">›</span>
+          <Chev />
         </Link>
 
         <Say tone={owed.length ? "dark" : "grey"} title={owed.length ? `Owed to me: ${money(owedTotal)}` : "Owed to me: $0"} sub={owed.length ? `${owed.length} shift${owed.length > 1 ? "s" : ""} approved, not yet paid. Bosses' names below.` : "When a boss approves your hours, it shows here until they pay you."} />
@@ -61,15 +60,32 @@ export default async function Me() {
               <div key={h.id} className="py-3">
                 <div className="flex justify-between items-center gap-2">
                   <div><div className="font-bold">{fmtDay(h.day)} · {h.site}</div><div className="text-sm text-steel">{h.boss_name}{h.company ? ` · ${h.company}` : ""}</div></div>
-                  <div className="text-right num"><div className="font-extrabold text-lg">{h.hours_approved != null ? money(gross(h)) : "—"}</div><StatusPill s={h.status} /></div>
+                  <div className="text-right num"><div className="font-extrabold text-lg">{h.hours_approved != null ? money(gross(h)) : "—"}</div><StatusPill s={h.status} view="worker" /></div>
                 </div>
+                {/* Hours that don't match are waiting on this worker to say something — orange until they do. */}
                 {h.hours_approved != null && Number(h.hours_approved) !== Number(h.hours_worked) && (
-                  <div className="mt-2 say-orange">
-                    <div className="font-bold">Boss approved {Number(h.hours_approved)}h. You recorded {Number(h.hours_worked)}h.</div>
-                    <div className="say-sub">Both numbers stay on record. Best fix: ring them.</div>
+                  <div className={`mt-2 ${h.disputed_at ? "say-grey" : "say-orange"}`}>
+                    <div className="flex items-start gap-3">
+                      {h.disputed_at
+                        ? <Check size={22} strokeWidth={2.25} aria-hidden className="shrink-0 mt-0.5 text-go" />
+                        : <CircleAlert size={22} strokeWidth={2.25} aria-hidden className="shrink-0 mt-0.5" />}
+                      <div className="min-w-0 flex-1">
+                        <div className="font-bold">Boss approved {Number(h.hours_approved)}h. You recorded {Number(h.hours_worked)}h.</div>
+                        <div className="say-sub">{h.disputed_at ? "You've told them you disagree. Both numbers stay on record." : "Both numbers stay on record. Best fix: ring them."}</div>
+                      </div>
+                    </div>
                     <div className="grid grid-cols-2 gap-2 mt-2">
-                      <CallLink phone={h.boss_phone} name={h.boss_name} onCall={workerLogCall.bind(null, h.boss_id, h.id)} className="btn-dark btn-sm w-full" />
-                      {!h.disputed_at ? <ConfirmButton action={disagree.bind(null, h.id)} className="btn bg-white text-ink btn-sm w-full" msg="Tell the boss you disagree with these hours?">I disagree</ConfirmButton> : <div className="text-sm font-bold self-center">You flagged this ✓</div>}
+                      <CallLink phone={h.boss_phone} name={h.boss_name} onCall={workerLogCall.bind(null, h.boss_id, h.id)} className="btn bg-white text-ink btn-sm w-full" />
+                      {!h.disputed_at && (
+                        <ConfirmButton action={disagree.bind(null, h.id)} className="btn bg-white text-ink btn-sm w-full" danger={false}
+                          title={`Tell ${h.boss_name.split(" ")[0]} you disagree?`}
+                          details={[
+                            `${h.boss_name.split(" ")[0]} gets a message that you disagree with the ${Number(h.hours_approved)}h approved for ${fmtDay(h.day)}.`,
+                            `Both numbers stay on record: you recorded ${Number(h.hours_worked)}h.`,
+                            "Nothing is changed by itself — the two of you sort out the number.",
+                          ]}
+                          confirmLabel="Yes, tell them" cancelLabel="Not now">I disagree</ConfirmButton>
+                      )}
                     </div>
                   </div>
                 )}

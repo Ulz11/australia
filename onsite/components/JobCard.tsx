@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Chev } from "./ui";
 
 export type JobLine = { id: string; title: React.ReactNode; sub?: React.ReactNode; right?: React.ReactNode; tone?: "orange" | "green" };
 
@@ -8,12 +9,12 @@ export type JobLine = { id: string; title: React.ReactNode; sub?: React.ReactNod
  */
 export function JobCard({ title, sub, lines, tone }: { title: React.ReactNode; sub?: React.ReactNode; lines: JobLine[]; tone?: "orange" | "green" }) {
   return (
-    <div className={`card p-0 overflow-hidden ${tone === "orange" ? "border-hv border-2" : tone === "green" ? "border-go border-2" : ""}`}>
+    <div className={`card p-0 overflow-hidden ${tone === "orange" ? "border-hv border-2 bg-hv-soft" : tone === "green" ? "border-go border-2" : ""}`}>
       <div className="px-4 pt-4 pb-3">
         <div className="text-lg font-bold leading-tight">{title}</div>
         {sub && <div className="text-base text-steel mt-0.5">{sub}</div>}
       </div>
-      <ul className="border-t border-line divide-y divide-line">
+      <ul className="border-t border-line divide-y divide-line bg-white">
         {lines.map((l) => (
           <li key={l.id}>
             <Link href={`/boss/shifts/${l.id}`} className="flex items-center gap-3 px-4 py-3 min-h-[64px]">
@@ -23,7 +24,7 @@ export function JobCard({ title, sub, lines, tone }: { title: React.ReactNode; s
                 {l.sub && <div className="text-sm text-steel mt-0.5">{l.sub}</div>}
               </div>
               {l.right && <div className="shrink-0 text-right">{l.right}</div>}
-              <span className="text-steel text-2xl leading-none">›</span>
+              <Chev />
             </Link>
           </li>
         ))}

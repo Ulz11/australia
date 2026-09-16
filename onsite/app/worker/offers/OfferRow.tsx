@@ -1,7 +1,9 @@
 "use client";
 import { useState, useTransition } from "react";
+import { Check, CircleAlert, Hourglass, X } from "lucide-react";
 import { withdrawOffer, acceptCounter } from "@/actions/worker";
 import { money } from "@/lib/award";
+import { Say } from "@/components/ui";
 
 export type O = {
   id: string; status: string; from_role: string; message: string | null;
@@ -16,13 +18,14 @@ export function OfferRow({ o }: { o: O }) {
   const rate = o.rate ?? o.shift_rate, hours = o.hours ?? o.shift_hours;
   const isCounter = o.from_role === "boss";
 
+  // Orange only for the boss's counter-offer: that one is sitting there waiting for this worker to answer.
   const head = {
-    pending: isCounter ? { tone: "orange", title: "The boss came back with an offer" } : { tone: "grey", title: "Waiting on the boss" },
-    accepted: { tone: "green", title: "Agreed — you're booked" },
-    declined: { tone: "red", title: "Boss said no" },
-    withdrawn: { tone: "grey", title: "You pulled this one" },
-    expired: { tone: "grey", title: "Shift went before he answered" },
-  }[o.status] ?? { tone: "grey", title: o.status };
+    pending: isCounter ? { tone: "orange" as const, icon: CircleAlert, title: "The boss came back with an offer" } : { tone: "grey" as const, icon: Hourglass, title: "Waiting on the boss" },
+    accepted: { tone: "green" as const, icon: Check, title: "Agreed — you're booked" },
+    declined: { tone: "red" as const, icon: X, title: "Boss said no" },
+    withdrawn: { tone: "grey" as const, icon: X, title: "You pulled this one" },
+    expired: { tone: "grey" as const, icon: Hourglass, title: "Shift went before he answered" },
+  }[o.status] ?? { tone: "grey" as const, icon: undefined, title: o.status };
 
   return (
     <div className="card space-y-3">
@@ -31,10 +34,8 @@ export function OfferRow({ o }: { o: O }) {
         <div className="text-steel">{o.site} · {o.boss}</div>
       </div>
 
-      <div className={`say-${head.tone}`}>
-        <div className="say-title">{head.title}</div>
-        <div className="say-sub num">{money(rate)}/h · {hours}h{o.start_time ? ` from ${o.start_time}` : ""} · about {money(rate * hours)} for the day</div>
-      </div>
+      <Say tone={head.tone} icon={head.icon} title={head.title}
+        sub={`${money(rate)}/h · ${hours}h${o.start_time ? ` from ${o.start_time}` : ""} · about ${money(rate * hours)} for the day`} />
 
       {o.message && <div className="text-sm bg-site rounded-xl p-3">“{o.message}”</div>}
 

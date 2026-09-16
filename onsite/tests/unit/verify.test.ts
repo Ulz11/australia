@@ -351,7 +351,8 @@ describe("namesMatch — registers spell names differently", () => {
 describe("licenceWords", () => {
   it("never says 'checked' for something we haven't checked", () => {
     expect(licenceWords({ status: "unchecked" }).label).toMatch(/not checked/i);
-    expect(licenceWords({ status: "verified", issued_state: "NSW" }).label).toMatch(/✓/);
+    // The tick is an icon on the badge now, not a character in the label (components/ui.tsx Flag).
+    expect(licenceWords({ status: "verified", issued_state: "NSW" }).label).toBe("Checked");
     expect(licenceWords({ status: "expired", expires_on: "2020-01-01" }).tone).toBe("red");
   });
 });

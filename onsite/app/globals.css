@@ -8,13 +8,22 @@ body { font-family: 'Archivo', system-ui, sans-serif; font-size: 17px; line-heig
 * { box-sizing: border-box; }
 input, select, textarea, button { font: inherit; }
 
+@layer base {
+  /* One focus ring for the whole app: ink, with a white halo so it also shows on ink, green and orange blocks. */
+  :focus-visible { outline: 3px solid #15171A; outline-offset: 2px; box-shadow: 0 0 0 2px #FFFFFF; }
+}
+
 @layer components {
-  /* Buttons: one primary per screen. Big enough for a gloved thumb. */
+  /*
+   * Buttons: one primary per screen. Big enough for a gloved thumb.
+   * Ink is the button colour. Orange is never "press me" — it only ever means "this needs you".
+   */
   .btn { @apply inline-flex items-center justify-center gap-2 rounded-2xl px-5 min-h-[56px] font-bold text-lg transition active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none select-none text-center leading-tight; }
-  .btn-primary { @apply btn bg-hv text-ink w-full; }
-  .btn-dark { @apply btn bg-ink text-white w-full; }
+  .btn-primary { @apply btn bg-ink text-white w-full; }
+  .btn-dark { @apply btn-primary; }              /* the same ink button; the name is kept so call sites don't churn */
   .btn-ghost { @apply btn bg-white border-2 border-line text-ink w-full; }
   .btn-danger { @apply btn bg-white border-2 border-warn text-warn w-full; }
+  .btn-destroy { @apply btn bg-warn text-white w-full; }   /* the red one you press in the confirm sheet */
   .btn-sm { @apply min-h-[44px] text-base px-4 w-auto; }
   .card { @apply bg-white rounded-2xl border border-line p-4; }
   .label { @apply text-[12px] uppercase tracking-[0.12em] text-steel font-bold; }
@@ -22,8 +31,9 @@ input, select, textarea, button { font: inherit; }
   .chip { @apply inline-flex items-center rounded-full border-2 border-line bg-white px-4 min-h-[44px] text-base font-semibold; }
   .chip-on { @apply border-ink bg-ink text-white; }
   .num { font-variant-numeric: tabular-nums; }
+  /* The hazard stripe is the brand mark, not a state. Nothing else in the app is striped. */
   .stripe { background: repeating-linear-gradient(135deg, #FF7A00 0 12px, #15171A 12px 24px); height: 6px; }
-  /* A "say" block: one coloured sentence that tells you the state. */
+  /* A "say" block: one coloured sentence that tells you the state. Orange = it needs you, and never alone — icon and words too. */
   .say { @apply rounded-2xl p-4 leading-snug; }
   .say-grey { @apply say bg-site text-ink; }
   .say-green { @apply say bg-go text-white; }
@@ -36,5 +46,28 @@ input, select, textarea, button { font: inherit; }
   .seg { @apply grid bg-white border-2 border-line rounded-2xl p-1 gap-1; }
   .seg-item { @apply rounded-xl min-h-[48px] flex items-center justify-center font-bold text-base text-steel; }
   .seg-on { @apply bg-ink text-white; }
+  /* A quiet list of rarer actions: one row each, icon first. */
+  .acts { @apply bg-white rounded-2xl border border-line overflow-hidden divide-y divide-line; }
+  .act { @apply w-full flex items-center gap-3 text-left font-bold min-h-[56px] px-4 py-3 leading-tight; }
 }
+
+/* The confirm sheet (components/ConfirmSheet.tsx): a bottom sheet on a phone, a card in the middle on a big screen. */
+/* The dim is painted by the dialog itself (it covers the viewport), not by ::backdrop, so it shows up in a
+   screenshot and in browsers that style ::backdrop differently. */
+dialog.sheet { @apply m-0 p-0 w-full h-full max-w-none max-h-none open:flex items-end justify-center sm:items-center; background: rgba(21, 23, 26, 0.6); }
+dialog.sheet::backdrop { background: transparent; }
+@media (prefers-reduced-motion: no-preference) {
+  dialog.sheet[open] .sheet-panel { animation: sheet-up 0.22s cubic-bezier(0.2, 0.8, 0.2, 1); }
+  dialog.sheet[open] { animation: sheet-fade 0.22s ease-out; }
+  @media (min-width: 640px) {
+    dialog.sheet[open] .sheet-panel { animation-name: sheet-pop; }
+  }
+}
+@keyframes sheet-up { from { transform: translateY(100%); } to { transform: none; } }
+@keyframes sheet-pop { from { transform: translateY(12px) scale(0.98); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes sheet-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* A field focused behind the job form's sticky bar still scrolls clear of it. */
+html:has(.stickybar) { scroll-padding-bottom: 200px; }
+
 .maplibregl-ctrl-attrib { font-size: 10px; }

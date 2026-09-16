@@ -1,9 +1,11 @@
 "use client";
 import { useMemo, useOptimistic, useState, useTransition } from "react";
+import { BellRing, Check, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { setAvailability, setPattern, takeShift } from "@/actions/worker";
 import { fmtDay, fmtTime, km, todayIso } from "@/lib/util";
 import { TICKETS } from "@/lib/award";
 import { otInWords } from "@/lib/rules";
+import { Flag } from "@/components/ui";
 import { OfferSheet } from "./OfferSheet";
 
 export type S = { id: string; day: string; start_time: string; hours: number; rate: number; role: string; site: string; dist_m: number; boss: string; spots: number; taken: number; tickets_ok: boolean; notified: boolean; mine: boolean; tickets_required: string[]; approve_h: number | null; pay_d: number | null; ot_mode?: string; ot_after_hours?: number; ot_multiplier?: number | null; allow_offers?: boolean; offered?: boolean };
@@ -41,9 +43,9 @@ export function Calendar({ availability, shifts, bookings }: { availability: Rec
     <div className="space-y-3">
       <div className="card p-3">
         <div className="flex items-center justify-between mb-2">
-          <button className="btn-ghost btn-sm" onClick={() => moveMonth(-1)}>‹</button>
+          <button className="btn-ghost btn-sm" aria-label="Month before" onClick={() => moveMonth(-1)}><ChevronLeft size={22} strokeWidth={2.5} aria-hidden /></button>
           <div className="text-lg font-extrabold">{new Date(month + "-01T00:00:00Z").toLocaleDateString("en-AU", { month: "long", year: "numeric", timeZone: "UTC" })}</div>
-          <button className="btn-ghost btn-sm" onClick={() => moveMonth(1)}>›</button>
+          <button className="btn-ghost btn-sm" aria-label="Month after" onClick={() => moveMonth(1)}><ChevronRight size={22} strokeWidth={2.5} aria-hidden /></button>
         </div>
         <div className="grid grid-cols-7 text-center text-xs text-steel font-bold mb-1">{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => <div key={d}>{d}</div>)}</div>
         <div className="grid grid-cols-7 gap-1">
@@ -57,7 +59,7 @@ export function Calendar({ availability, shifts, bookings }: { availability: Rec
             const cls = st === "working" ? "bg-ink text-white" : st === "free" ? "bg-go text-white" : "bg-site text-steel";
             return (
               <button key={d} onClick={() => setSel(d)} disabled={past}
-                className={`relative aspect-square rounded-xl text-base font-bold ${cls} ${past ? "opacity-30" : ""} ${sel === d ? "ring-[3px] ring-hv ring-offset-1" : ""}`}>
+                className={`relative aspect-square rounded-xl text-base font-bold ${cls} ${past ? "opacity-30" : ""} ${sel === d ? "ring-[3px] ring-ink ring-offset-1" : ""}`}>
                 {Number(d.slice(8))}
                 {b && <span className="absolute bottom-0.5 inset-x-0 text-[10px] font-normal leading-none">{fmtTime(b.start_time).replace(":00", "")}</span>}
                 {!b && n > 0 && <span className={`absolute top-1 right-1 w-2.5 h-2.5 rounded-full border border-white ${hot ? "bg-hv" : "bg-steel"}`} />}
@@ -66,7 +68,7 @@ export function Calendar({ availability, shifts, bookings }: { availability: Rec
           })}
         </div>
         <div className="flex gap-4 text-sm text-steel mt-3 flex-wrap font-semibold">
-          <L c="bg-go" t="Free" /><L c="bg-site border border-line" t="Busy" /><L c="bg-ink" t="Working" /><span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-hv" />Shift for you</span>
+          <L c="bg-go" t="Free" /><L c="bg-site border border-line" t="Busy" /><L c="bg-ink" t="Working" /><span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-hv" />Offer for you</span>
         </div>
       </div>
 
@@ -126,11 +128,18 @@ export function ShiftCard({ s, onTake, pending }: { s: S; onTake: () => void; pe
   const canTake = s.tickets_ok && left > 0;
   return (
     <div className={`rounded-2xl border-2 p-4 ${s.notified ? "border-hv bg-hv-soft" : "border-line bg-white"}`}>
+      {s.notified && <Flag tone="orange" icon={BellRing} className="mb-2">Offered to you</Flag>}
       <div className="text-2xl font-extrabold num">${Math.round(s.rate * s.hours)} <span className="text-base font-semibold text-steel">for the day</span></div>
       <div className="text-lg font-bold mt-1">{s.role} · {s.site}</div>
       <div className="text-steel">{fmtTime(s.start_time)} start · {s.hours} hours · ${s.rate.toFixed(2)} an hour</div>
       <div className="text-steel">{km(s.dist_m)} from home · {s.boss}{left > 1 ? ` · ${left} spots` : left === 1 && s.spots > 1 ? " · last spot" : ""}</div>
-      {need.length > 0 && <div className={`mt-1 font-semibold ${s.tickets_ok ? "text-go" : "text-warn"}`}>{s.tickets_ok ? "✓ You have the " : "✗ Needs "}{need.map((t) => TICKETS[t] ?? t).join(", ")}{s.tickets_ok ? " licence" : " licence — you don't"}</div>}
+      {need.length > 0 && (
+        <div className={`mt-1 font-semibold flex items-start gap-1.5 ${s.tickets_ok ? "text-go" : "text-warn"}`}>
+          {s.tickets_ok
+            ? <><Check size={20} strokeWidth={2.5} aria-hidden className="shrink-0" />You have the {need.map((t) => TICKETS[t] ?? t).join(", ")} licence</>
+            : <><X size={20} strokeWidth={2.5} aria-hidden className="shrink-0" />Needs {need.map((t) => TICKETS[t] ?? t).join(", ")} licence — you don't</>}
+        </div>
+      )}
       {s.ot_mode && (
         <div className="text-sm mt-1.5 rounded-lg bg-site px-2.5 py-1.5">
           <b>Overtime agreed up front:</b> {otInWords({ ot_mode: s.ot_mode as never, ot_after_hours: s.ot_after_hours ?? 8, ot_multiplier: s.ot_multiplier ?? null }, s.rate)}

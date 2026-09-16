@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState, useTransition } from "react";
+import { BellRing } from "lucide-react";
 import { removePushSubscription, savePushSubscription, sendTestAlert } from "@/actions/alerts";
 
 type State = "checking" | "unsupported" | "ios-install" | "blocked" | "off" | "on";
@@ -71,21 +72,25 @@ export function AlertsToggle({ publicKey, role, compact, savedPush }: { publicKe
 
   if (compact) {
     if (state !== "off" && state !== "ios-install") return null;
+    // A nudge, not an alarm: alerts are worth turning on, but nothing is waiting on this worker here.
     return (
-      <div className="say-orange">
-        <div className="say-title">Get a buzz {what}</div>
-        {state === "ios-install"
-          ? <div className="say-sub">On iPhone: tap Share, then <b>Add to Home Screen</b>. Open OnSite from there and turn alerts on.</div>
-          : <><div className="say-sub">Shifts go to whoever answers first. Alerts reach you even with the app closed.</div>
-              <button onClick={turnOn} disabled={pending} className="btn-dark btn-sm mt-2">{pending ? "Turning on…" : "Turn on alerts"}</button></>}
-        {msg && <div className="say-sub mt-1 font-semibold">{msg}</div>}
+      <div className="card flex items-start gap-3">
+        <BellRing size={24} strokeWidth={2.25} aria-hidden className="shrink-0 mt-0.5 text-steel" />
+        <div className="min-w-0 flex-1">
+          <div className="text-lg font-bold leading-tight">Get a buzz {what}</div>
+          {state === "ios-install"
+            ? <div className="text-steel mt-0.5">On iPhone: tap Share, then <b>Add to Home Screen</b>. Open OnSite from there and turn alerts on.</div>
+            : <><div className="text-steel mt-0.5">Shifts go to whoever answers first. Alerts reach you even with the app closed.</div>
+                <button onClick={turnOn} disabled={pending} className="btn-dark btn-sm mt-2">{pending ? "Turning on…" : "Turn on alerts"}</button></>}
+          {msg && <div className="text-sm font-semibold mt-1">{msg}</div>}
+        </div>
       </div>
     );
   }
 
   return (
     <div className="card space-y-2">
-      <div className="text-lg font-bold">Phone alerts</div>
+      <div className="text-lg font-bold flex items-center gap-2"><BellRing size={20} strokeWidth={2.25} aria-hidden className="shrink-0" />Phone alerts</div>
       {state === "checking" && <p className="text-steel">Checking this phone…</p>}
       {state === "on" && <p>On for this phone. You'll get a buzz {what}.</p>}
       {state === "off" && <p>Off. Turn them on to get a buzz {what}{role === "worker" ? " — shifts go to whoever answers first" : ""}.</p>}

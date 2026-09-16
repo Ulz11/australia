@@ -1,3 +1,4 @@
+import { MapPin } from "lucide-react";
 import { sql } from "@/lib/db";
 import { requireRole } from "@/lib/session";
 import { Header, Page } from "@/components/Header";
@@ -16,7 +17,7 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
     sql`SELECT p.id, p.name, ST_Y(p.location::geometry) AS lat, ST_X(p.location::geometry) AS lng
         FROM projects p, workers w WHERE w.user_id = ${u.id} AND NOT p.archived AND w.home IS NOT NULL AND ST_DWithin(w.home, p.location, w.radius_km * 1000)`,
   ]);
-  if (!w?.lat) return (<><Header title="Map" /><Page><Link href="/worker/me" className="block"><Say tone="orange" title="Tell us where you live" sub="Tap here. Then the map shows jobs near you." /></Link></Page></>);
+  if (!w?.lat) return (<><Header title="Map" /><Page><Link href="/worker/me" className="block"><Say tone="orange" icon={MapPin} title="Tell us where you live" sub="Tap here. Then the map shows jobs near you." /></Link></Page></>);
   return (
     <>
       <Header title="Map" />

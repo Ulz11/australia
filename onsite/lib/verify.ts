@@ -112,7 +112,8 @@ export function namesMatch(a: string, b: string): boolean {
 export function licenceWords(l: { status: LicenceStatus; checked_at?: string | null; expires_on?: string | null; issued_state?: string | null }) {
   switch (l.status) {
     case "verified":
-      return { tone: "green" as const, label: "Checked ✓", detail: `Confirmed against the ${l.issued_state ?? ""} register${l.checked_at ? ` on ${new Date(l.checked_at).toLocaleDateString("en-AU")}` : ""}.` };
+      // The tick is drawn by the badge (components/ui.tsx Flag), not typed into the words.
+      return { tone: "green" as const, label: "Checked", detail: `Confirmed against the ${l.issued_state ?? ""} register${l.checked_at ? ` on ${new Date(l.checked_at).toLocaleDateString("en-AU")}` : ""}.` };
     case "not_found":
       return { tone: "red" as const, label: "Not on the register", detail: "The register has no current card with that number. Worker should bring the card on site." };
     case "expired":
@@ -122,6 +123,7 @@ export function licenceWords(l: { status: LicenceStatus; checked_at?: string | n
     case "checking":
       return { tone: "grey" as const, label: "Being checked", detail: "We're confirming this one now." };
     default:
-      return { tone: "grey" as const, label: "Card on file, not checked", detail: "Details given by the worker. Ask to see the card on site." };
+      // Short enough to sit beside the card's name on a phone; the line underneath says the rest.
+      return { tone: "grey" as const, label: "Not checked yet", detail: "On file, given by the worker. Ask to see the card on site." };
   }
 }

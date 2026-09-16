@@ -3,13 +3,14 @@ import { notFound } from "next/navigation";
 import { sql } from "@/lib/db";
 import { requireRole } from "@/lib/session";
 import { Header, Page } from "@/components/Header";
-import { Say, Section, Field } from "@/components/ui";
+import { Wallet } from "lucide-react";
+import { Avatar, Flag, Say, Section, Field } from "@/components/ui";
 import { StatusPill } from "@/components/StatusPill";
 import { CallLink } from "@/components/CallLink";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { updateCrew, removeFromCrew, blockWorker, logCall } from "@/actions/boss";
 import { AWARD_CASUAL_FLOOR, TICKETS, money } from "@/lib/award";
-import { fmtDay, initials } from "@/lib/util";
+import { fmtDay, todayIso } from "@/lib/util";
 import { licenceWords } from "@/lib/verify";
 import { isUuid } from "@/lib/validate";
 import { workerForBoss, licencesForBoss } from "@/lib/bossQueries";
@@ -29,15 +30,16 @@ export default async function WorkerProfile({ params }: { params: Promise<{ id: 
   if (!w) notFound();
   const total = history.filter((h) => h.hours_approved).reduce((a, h) => a + Number(h.hours_approved) * Number(h.rate), 0);
   const owed = history.filter((h) => h.status === "approved").reduce((a, h) => a + Number(h.hours_approved) * Number(h.rate), 0);
+  const first = w.name.split(" ")[0];
+  // What blocking them would actually do to work already booked (actions/boss.ts blockWorker).
+  const coming = history.filter((h) => ["accepted", "clocked_in"].includes(h.status) && String(h.day) >= todayIso());
   return (
     <>
       <Header title={w.name} back="/boss/workers" />
       <Page>
         <div className="card space-y-3">
           <div className="flex items-center gap-3">
-            <div className="w-20 h-20 rounded-2xl bg-site border border-line overflow-hidden shrink-0 flex items-center justify-center text-2xl font-bold text-steel">
-              {w.photo ? <img src={w.photo} alt="" className="w-full h-full object-cover" /> : initials(w.name)}
-            </div>
+            <Avatar name={w.name} photo={w.photo} size={80} />
             <div className="flex-1 min-w-0">
               <div className="text-xl font-extrabold">{w.name}</div>
               <div className="text-steel">{w.score != null ? `Turns up ${w.score}% of the time · ${w.completed} shifts done` : "New — no shifts yet"}{w.cancels > 0 ? ` · pulled out ${w.cancels}×` : ""}</div>
@@ -60,7 +62,8 @@ export default async function WorkerProfile({ params }: { params: Promise<{ id: 
         <Link href={`/boss/shifts/new?worker=${w.id}`} className="btn-primary text-xl">Book {w.name.split(" ")[0]} again</Link>
         <CallLink phone={w.phone} name={w.name} onCall={logCall.bind(null, w.id, undefined)} className="btn-ghost" />
 
-        {owed > 0 && <Say tone="dark" title={`You owe ${money(owed)}`} sub="Approved hours not yet marked paid. Go to Pay." />}
+        {/* Money you owe is waiting on you: same rule as "Still to pay" on the Pay screen. */}
+        {owed > 0 && <Say tone="orange" icon={Wallet} title={`You owe ${money(owed)}`} sub="Approved hours you haven't marked paid. Pay them your usual way, then mark it in Pay." />}
 
         <div className="card space-y-2">
           <div className="text-lg font-bold">Cards and licences</div>
@@ -70,13 +73,10 @@ export default async function WorkerProfile({ params }: { params: Promise<{ id: 
             return (
               <div key={l.kind} className={`rounded-xl border-2 p-3 ${lw.tone === "green" ? "border-go bg-go/5" : lw.tone === "red" ? "border-warn bg-warn/5" : "border-line"}`}>
                 <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="font-bold">{TICKETS[l.kind] ?? l.kind}</div>
-                    <div className="text-sm text-steel num">{[l.issued_state, l.expires_on ? `expires ${l.expires_on}` : null].filter(Boolean).join(" · ") || "State not given"}</div>
-                  </div>
-                  <span className={`inline-flex items-center rounded-lg px-2.5 py-1 text-sm font-bold shrink-0 ${
-                    lw.tone === "green" ? "bg-go text-white" : lw.tone === "red" ? "bg-warn text-white" : "bg-site text-steel"}`}>{lw.label}</span>
+                  <div className="font-bold min-w-0">{TICKETS[l.kind] ?? l.kind}</div>
+                  <Flag tone={lw.tone} className="shrink-0">{lw.label}</Flag>
                 </div>
+                <div className="text-sm text-steel num">{[l.issued_state, l.expires_on ? `expires ${l.expires_on}` : null].filter(Boolean).join(" · ") || "State not given"}</div>
                 <div className="text-sm text-steel mt-1">{lw.detail}</div>
               </div>
             );
@@ -118,8 +118,26 @@ export default async function WorkerProfile({ params }: { params: Promise<{ id: 
         </div>
 
         <div className="grid grid-cols-2 gap-2">
-          {w.type && <ConfirmButton action={removeFromCrew.bind(null, w.id)} className="btn-ghost btn-sm w-full" msg="Remove from your crew? History is kept.">Remove from crew</ConfirmButton>}
-          <ConfirmButton action={blockWorker.bind(null, w.id)} className="btn-danger btn-sm w-full" msg="Block? They'll never be matched to your shifts again.">Block</ConfirmButton>
+          {w.type && (
+            <ConfirmButton action={removeFromCrew.bind(null, w.id)} className="btn-ghost btn-sm w-full" danger={false}
+              title={`Take ${first} out of your crew?`}
+              details={[
+                "Every shift, hour and dollar you two have on record stays.",
+                `${first} isn't told, and can still be matched to your shifts.`,
+                "Approving their hours puts them back in your crew.",
+              ]}
+              confirmLabel="Take them out" cancelLabel="Keep them">Remove from crew</ConfirmButton>
+          )}
+          <ConfirmButton action={blockWorker.bind(null, w.id)} className="btn-danger btn-sm w-full"
+            title={`Block ${first}?`}
+            details={[
+              `${first} will never be matched to one of your shifts again.`,
+              coming.length > 0
+                ? `They come off ${coming.length} shift${coming.length > 1 ? "s" : ""} coming up and are told they were taken off — not that you blocked them.`
+                : "They aren't on any of your shifts coming up, so nobody gets a message.",
+              "Any deal request of theirs to you is closed, and they leave your crew.",
+            ]}
+            confirmLabel={`Block ${first}`} cancelLabel="Don't block">Block</ConfirmButton>
         </div>
       </Page>
     </>

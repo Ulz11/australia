@@ -1,9 +1,14 @@
 import Link from "next/link";
+import { ChevronLeft } from "lucide-react";
 export function Header({ title, back, right }: { title: string; back?: string; right?: React.ReactNode }) {
   return (
     <header className="sticky top-0 z-30 bg-site/95 backdrop-blur border-b border-line">
       <div className="max-w-md mx-auto flex items-center gap-2 px-4 h-16">
-        {back && <Link href={back} className="text-lg font-bold px-2 -ml-2 min-h-[44px] flex items-center" aria-label="Back">‹ Back</Link>}
+        {back && (
+          <Link href={back} className="text-lg font-bold px-2 -ml-2 min-h-[44px] flex items-center gap-1" aria-label="Back">
+            <ChevronLeft size={22} strokeWidth={2.5} aria-hidden />Back
+          </Link>
+        )}
         <h1 className={`text-2xl font-extrabold truncate flex-1 ${back ? "text-right" : ""}`}>{title}</h1>
         {right}
       </div>
