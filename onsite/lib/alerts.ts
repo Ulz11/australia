@@ -15,7 +15,7 @@ import { hit, refund } from "./ratelimit";
  *  2. pushes to every phone the person turned alerts on for,
  *  3. texts a shift offer when no push landed, or when the shift starts within 3 hours (read off the shift, not the wording),
  *  4. drops anything older than 30 minutes unsent — a stale "shift near you" is worse than none.
- * The 4-minute cron runs it too. A run that dies after claiming rows leaves them unstamped; they're
+ * The 20-minute cron runs it too. A run that dies after claiming rows leaves them unstamped; they're
  * claimed again after 2 minutes. A repeated push is collapsed by its tag; a text is stamped the moment it lands
  * (sms_at), so a retry never buys the same person a second one.
  *
@@ -98,7 +98,7 @@ export function sendAlertsSoon() {
   try {
     after(() => deliverAlerts().then(() => {}, (e) => console.error("alerts", e)));
   } catch {
-    /* not in a request (scripts, tests) — the cron sweep delivers within 4 minutes */
+    /* not in a request (scripts, tests) — the cron sweep delivers within 20 minutes */
   }
 }
 

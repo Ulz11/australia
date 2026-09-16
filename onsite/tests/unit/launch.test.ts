@@ -27,10 +27,10 @@ describe("the database pool", () => {
 });
 
 describe("vercel.json", () => {
-  it("pins functions to Sydney and runs the cron every 4 minutes", () => {
+  it("pins functions to Sydney and runs the cron every 20 minutes", () => {
     const v = JSON.parse(fs.readFileSync("vercel.json", "utf8"));
     expect(v.regions).toEqual(["syd1"]);
-    expect(v.crons).toEqual([{ path: "/api/cron/expand", schedule: "*/4 * * * *" }]);
+    expect(v.crons).toEqual([{ path: "/api/cron/expand", schedule: "*/20 * * * *" }]);
     expect(fs.existsSync("render.yaml")).toBe(false);
     expect(fs.readFileSync("next.config.ts", "utf8")).not.toMatch(/standalone/);
   });

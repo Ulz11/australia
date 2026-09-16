@@ -51,7 +51,7 @@ Every screen is **one database round-trip** and every tap is **one statement**:
 - On a long-lived server the pool never idle-closes (a fresh TLS handshake to Neon is ~2 s) and is warmed at boot. On Vercel, whose Fluid compute suspends idle instances, idle connections close after 15 s and none lives past 5 min, and nothing connects at import (`lib/db.ts`).
 - Frequent taps (Free/Busy, Clock in/out, Mark paid) flip on screen instantly and sync behind.
 - The map library (300 kB) loads only on screens that show a map.
-- The cron ping every 4 min also keeps the free-tier Neon compute awake.
+- The cron runs every 20 min, so the Neon compute can sleep between runs when nobody is using the app; the first tap after a quiet spell pays a short wake-up.
 
 Feel it in production mode (`npm run build && npm start`) — `next dev` compiles pages on first visit and is not representative.
 
@@ -99,7 +99,7 @@ actions/boss.ts      post shift, approve hours, crew, pay, same-again, block…
 actions/worker.ts    availability, take shift, clock in/out, disagree, profile
 app/boss/*           Projects · Post shift · Live shift · Workers · Pay · Me
 app/worker/*         Calendar · Explore (map/list) · Shift · Me (owed, invite)
-app/api/cron/expand  hit every 4 min → widens matching on stale open shifts, re-checks queued White Cards, sends any unsent alert
+app/api/cron/expand  hit every 20 min → widens matching on stale open shifts, re-checks queued White Cards, sends any unsent alert
 lib/alerts.ts        notifications → web push (+ SMS for shift offers); public/sw.js shows them
 lib/otp.ts           login code rules: crypto codes, hashed at rest, 5 wrong guesses an hour
 lib/sms.ts           one text via ClickSend (or Twilio); never logs the number or the message
@@ -139,7 +139,7 @@ Live at **https://onsite-au.vercel.app** — Vercel project `onsite-beta`, root 
    | `OTP_SENDS_PER_HOUR`, `SMS_ALERTS_PER_HOUR`, `WHITECARD_CHECKS_PER_DAY` | beta limits — see below |
    | `DEMO_CONSOLE` | leave unset (ignored in production unless `DEMO_SITE=1`) |
 
-4. **Cron.** `vercel.json` calls `GET /api/cron/expand` every 4 minutes (production deployments only): widens matching, reconciles QPay, re-checks queued White Cards, sends unsent alerts, and keeps the Neon compute awake.
+4. **Cron.** `vercel.json` calls `GET /api/cron/expand` every 20 minutes (production deployments only): widens matching, reconciles QPay, re-checks queued White Cards, and sends unsent alerts. Neon can sleep between runs.
 5. **Invites.** With `BETA_INVITE_ONLY=1`, only numbers on the guest list — or that already have an account — get a login code. Manage the list from your machine:
    `DATABASE_URL=<direct URL> npm run beta:invite -- 0412345678 [--role worker|boss] [--note "…"]`, `-- --list`, `-- --remove 0412345678`. Removing a number stops a new sign-up, not an existing account.
 
@@ -157,7 +157,7 @@ Fixed in code: 40 code requests an hour per connection, 5 codes an hour and 1 a 
 
 ## Phone alerts
 
-Every notification row is an outbox. After the tap that wrote it, `lib/alerts.ts` pushes it to each phone the person turned alerts on for (Me → Phone alerts, or the nudge on the home screen), and texts **shift offers** when no push landed or the shift starts within 3 hours. Anything unsent after 30 minutes is dropped — a stale "shift near you" is worse than none. The 4-minute cron is the backup sender, and a send that dies mid-way is retried after 2 minutes. Texts never carry words a boss typed (fixed wording plus the shift's date and time), each person gets at most 5 a day, one boss at most a fifth of `SMS_ALERTS_PER_HOUR` (default 500) so nobody can drain the budget and silence everyone else, and a boss can post at most 40 shifts an hour. A text is stamped the moment it lands, so a retry never buys a second one; a text the provider refused is retried, and any budget it charged is handed back so a refusal never eats someone's allowance. Texts go through ClickSend (`SMS_PROVIDER`, `CLICKSEND_USERNAME`, `CLICKSEND_API_KEY`, optional `CLICKSEND_FROM`; Twilio still works if chosen) and only count as sent when ClickSend accepts that message — `INSUFFICIENT_CREDIT`, an invalid recipient or an HTTP error is a failure. ClickSend says it pauses texts that contain links for new customers until approved, and shift-offer texts carry one when `NEXT_PUBLIC_BASE_URL` is set. With no SMS provider, `npm run dev` logs the message instead of sending it; a production build refuses to pretend — it logs that nothing was sent (never the message, which can be a login code) and the alert is retried until it expires. Signing out switches that phone's alerts off (the subscription is remembered in a cookie, so it works without JavaScript). Push needs `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`; only real push services (Google, Apple, Mozilla, Microsoft) are accepted as endpoints. On iPhone, alerts work once OnSite is added to the Home Screen (iOS 16.4+).
+Every notification row is an outbox. After the tap that wrote it, `lib/alerts.ts` pushes it to each phone the person turned alerts on for (Me → Phone alerts, or the nudge on the home screen), and texts **shift offers** when no push landed or the shift starts within 3 hours. Anything unsent after 30 minutes is dropped — a stale "shift near you" is worse than none. The 20-minute cron is the backup sender, and a send that dies mid-way is retried after 2 minutes. Texts never carry words a boss typed (fixed wording plus the shift's date and time), each person gets at most 5 a day, one boss at most a fifth of `SMS_ALERTS_PER_HOUR` (default 500) so nobody can drain the budget and silence everyone else, and a boss can post at most 40 shifts an hour. A text is stamped the moment it lands, so a retry never buys a second one; a text the provider refused is retried, and any budget it charged is handed back so a refusal never eats someone's allowance. Texts go through ClickSend (`SMS_PROVIDER`, `CLICKSEND_USERNAME`, `CLICKSEND_API_KEY`, optional `CLICKSEND_FROM`; Twilio still works if chosen) and only count as sent when ClickSend accepts that message — `INSUFFICIENT_CREDIT`, an invalid recipient or an HTTP error is a failure. ClickSend says it pauses texts that contain links for new customers until approved, and shift-offer texts carry one when `NEXT_PUBLIC_BASE_URL` is set. With no SMS provider, `npm run dev` logs the message instead of sending it; a production build refuses to pretend — it logs that nothing was sent (never the message, which can be a login code) and the alert is retried until it expires. Signing out switches that phone's alerts off (the subscription is remembered in a cookie, so it works without JavaScript). Push needs `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`; only real push services (Google, Apple, Mozilla, Microsoft) are accepted as endpoints. On iPhone, alerts work once OnSite is added to the Home Screen (iOS 16.4+).
 
 ## Maps
 
@@ -179,7 +179,7 @@ Anyone signed in can type any number into that form, so the answer never says wh
 
 **Only NSW White Cards are checked automatically.** That register doesn't hold high risk work licences (LF / WP / DG / SB), and no other state has an API, so everything else stays a human check and shows as "on file, not checked". A call that didn't come back — network, timeout, 5xx, 429, a body we can't read, a 401 twice — is *couldn't check*, never *not on the register*: the card stays unchecked and goes on the re-check queue.
 
-**Re-checks.** A NSW White Card whose check couldn't complete — the register or its token service down, a timeout, a 4xx/5xx, 429/503, or the day's budget spent — is not left unchecked for ever. `checkLicence` says so explicitly (`retryable: "failed" | "cap_refused" | "paused"`, never read off the note's wording) and `saveLicence` queues the card (`licences.recheck_at`, migration 007); any other save — a real answer, another state, a high risk work licence — takes it off the queue. The 4-minute cron runs `recheckLicences()` (`lib/licenceRecheck.ts`) before it delivers alerts, at most **5 cards a run**:
+**Re-checks.** A NSW White Card whose check couldn't complete — the register or its token service down, a timeout, a 4xx/5xx, 429/503, or the day's budget spent — is not left unchecked for ever. `checkLicence` says so explicitly (`retryable: "failed" | "cap_refused" | "paused"`, never read off the note's wording) and `saveLicence` queues the card (`licences.recheck_at`, migration 007); any other save — a real answer, another state, a high risk work licence — takes it off the queue. The 20-minute cron runs `recheckLicences()` (`lib/licenceRecheck.ts`) before it delivers alerts, at most **5 cards a run**:
 
 | | wait before the next try |
 |---|---|
@@ -202,7 +202,7 @@ Credentials go in `.env` as `WHITE_CARD_API_KEY`, `WHITE_CARD_API_SECRET`, and t
 
 ## Payments (QPay)
 
-`lib/qpay.ts` talks to the QPay merchant API v2 (token → invoice → payment check); `lib/billing.ts` stores invoices in `qpay_invoices` (migration 004); QPay calls `/api/qpay/callback/<invoice>/<hmac>`, which marks an invoice paid **only after QPay's own `/payment/check` confirms it** — at most one check per invoice per 10 s. A lost callback is caught by the 4-minute cron, which re-checks open invoices on a widening gap for 24 h. Amounts are whole MNT — nothing converts AUD. Credentials go in `.env` as `QPAY_USERNAME`, `QPAY_PASSWORD`, `QPAY_INVOICE_CODE`; `npm run qpay:ping` proves they work without raising an invoice. Nothing in the UI charges anyone yet — what to charge, and when, is still a product decision.
+`lib/qpay.ts` talks to the QPay merchant API v2 (token → invoice → payment check); `lib/billing.ts` stores invoices in `qpay_invoices` (migration 004); QPay calls `/api/qpay/callback/<invoice>/<hmac>`, which marks an invoice paid **only after QPay's own `/payment/check` confirms it** — at most one check per invoice per 10 s. A lost callback is caught by the 20-minute cron, which re-checks open invoices on a widening gap for 24 h. Amounts are whole MNT — nothing converts AUD. Credentials go in `.env` as `QPAY_USERNAME`, `QPAY_PASSWORD`, `QPAY_INVOICE_CODE`; `npm run qpay:ping` proves they work without raising an invoice. Nothing in the UI charges anyone yet — what to charge, and when, is still a product decision.
 
 ## Privacy
 

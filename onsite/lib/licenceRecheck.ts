@@ -8,7 +8,7 @@
  * other save takes the card off the queue, so HRW licences, other states and real answers never
  * join it, and nor does anything the demo seed writes.
  *
- * The 4-minute cron (app/api/cron/expand) calls recheckLicences(), which takes at most
+ * The 20-minute cron (app/api/cron/expand) calls recheckLicences(), which takes at most
  * RECHECK_BATCH due cards a run and asks again, one at a time:
  *
  *  - A real answer → written exactly as saveLicence writes one (status, checked_at, checked_via,
@@ -50,7 +50,7 @@ export const RECHECK_FIRST_MIN = 5;
 export const RECHECK_BACKOFF_MIN = [15, 60, 180, 360, 720, 1440] as const;
 /** Cards asked about per cron run. Each can be a live call against a 2,500-a-month quota. */
 export const RECHECK_BATCH = 5;
-/** How far a claim pushes `recheck_at`, so a run that dies doesn't take the same cards every 4 minutes. */
+/** How far a claim pushes `recheck_at`, so a run that dies doesn't take the same cards on the next run. */
 export const RECHECK_LEASE_MIN = 10;
 /** Shortest wait for a card the daily budget turned away, even if the window is about to roll over. */
 export const CAP_WAIT_MIN = 15;

@@ -2,6 +2,6 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "regions": ["syd1"],
   "crons": [
-    { "path": "/api/cron/expand", "schedule": "*/4 * * * *" }
+    { "path": "/api/cron/expand", "schedule": "*/20 * * * *" }
   ]
 }

@@ -141,7 +141,7 @@ export function Console({ bosses, workers, counts: c0, env, tests, resultsHtml, 
               <Row ok={env.nsw} label="White Card check (SafeWork NSW)" hint={env.nsw ? "automatic for NSW White Cards" : "no API key — cards marked 'on file, not checked'"} />
               <Row ok={env.push} label="Phone alerts (web push)" hint={env.push ? "buzzes phones that turned alerts on; texts shift offers otherwise" : "no VAPID keys — shift offers go by text only"} warn={!env.push && !env.sms} />
               <Row ok={env.qpay} label="Payments (QPay)" hint={env.qpay ? "invoices in MNT, confirmed via payment check" : "no credentials — billing off"} />
-              <Row ok={env.cron} label="Matching cron secret" hint="widens matching every 4 min, keeps Neon awake" />
+              <Row ok={env.cron} label="Matching cron secret" hint="widens matching every 20 min" />
               <Row ok={env.node === "production"} label={`Mode: ${env.node}`} hint={env.node === "production" ? "" : "use npm run build && npm start to feel real speed"} neutral />
             </ul>
           </div>
