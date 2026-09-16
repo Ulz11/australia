@@ -1,7 +1,7 @@
 # Secrets — the Neon password and session secret live in these. Never commit them.
 **/.env
-**/.env.local
-**/.env.*.local
+**/.env.*
+!**/.env.example
 
 # Build output and dependencies
 **/node_modules/
