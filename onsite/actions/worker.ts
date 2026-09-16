@@ -146,6 +146,7 @@ export async function workerLogCall(toUser: string, bookingId?: string) {
 import { checkOffer } from "@/lib/rules";
 import { type LicenceKind } from "@/lib/verify";
 import { checkLicence } from "@/lib/licenceCheck";
+import { RECHECK_FIRST_MIN } from "@/lib/licenceRecheck";
 import { hit, LICENCE_SAVES_PER_HOUR } from "@/lib/ratelimit";
 
 import { PHOTO_MAX_BYTES, TRADES, LANGUAGES } from "@/lib/profile";
@@ -202,15 +203,20 @@ export async function saveLicence(form: FormData) {
     return { error: "Too many card changes for now — try again in an hour." };
 
   const result = await checkLicence({ kind, number, issued_state, holder_name, expires_on });
+  // The re-check queue: only a check that was due and gave no answer goes on it (checkLicence says so
+  // explicitly). Any other save — a real answer, or a card no register can check — takes the card off
+  // it, and every save starts the attempt count again.
   await sql`
     WITH l AS (
-      INSERT INTO licences (worker_id, kind, number, issued_state, expires_on, holder_name, status, checked_at, checked_via, check_note)
+      INSERT INTO licences (worker_id, kind, number, issued_state, expires_on, holder_name, status, checked_at, checked_via, check_note, recheck_at, check_attempts)
       VALUES (${u.id}, ${kind}, ${number}, ${issued_state}, ${result.expires_on ?? expires_on}, ${holder_name},
-              ${result.status}, ${result.status === "unchecked" ? null : sql`now()`}, ${result.via}, ${result.note})
+              ${result.status}, ${result.status === "unchecked" ? null : sql`now()`}, ${result.via}, ${result.note},
+              ${result.retryable ? sql`now() + make_interval(mins => ${RECHECK_FIRST_MIN})` : null}, 0)
       ON CONFLICT (worker_id, kind) DO UPDATE SET
         number = EXCLUDED.number, issued_state = EXCLUDED.issued_state, expires_on = EXCLUDED.expires_on,
         holder_name = EXCLUDED.holder_name, status = EXCLUDED.status, checked_at = EXCLUDED.checked_at,
-        checked_via = EXCLUDED.checked_via, check_note = EXCLUDED.check_note
+        checked_via = EXCLUDED.checked_via, check_note = EXCLUDED.check_note,
+        recheck_at = EXCLUDED.recheck_at, check_attempts = EXCLUDED.check_attempts
       RETURNING worker_id
     ) SELECT worker_id FROM l`;
   await recomputeTickets(u.id);

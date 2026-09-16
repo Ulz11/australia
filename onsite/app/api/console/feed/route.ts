@@ -16,7 +16,7 @@ export async function GET() {
           (SELECT COUNT(*) FROM bookings WHERE status = 'clocked_out')::int AS to_approve,
           (SELECT COUNT(*) FROM bookings WHERE status = 'approved')::int AS owed,
           (SELECT COUNT(*) FROM offers WHERE status = 'pending')::int AS open_offers,
-          (SELECT COUNT(*) FROM licences WHERE status = 'unchecked')::int AS cards_to_check,
+          (SELECT COUNT(*) FROM licences WHERE status = 'unchecked' AND recheck_at IS NULL)::int AS cards_to_check,   -- a card the cron is still re-checking isn't a person's job yet
           (SELECT COUNT(*) FROM notifications WHERE created_at > now() - interval '24 hours')::int AS notifs_24h`,
   ]);
   return Response.json({ events, counts: counts[0], at: new Date().toISOString() }, { headers: { "Cache-Control": "no-store" } });

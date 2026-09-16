@@ -45,6 +45,17 @@ export type CheckResult = {
   note: string;         // one plain sentence, shown to both sides
   expires_on?: string | null;
   holder_name?: string | null;
+  /**
+   * Present only when an automatic check was due and gave no answer, so the card belongs on the
+   * re-check queue (lib/licenceRecheck.ts). Set by lib/licenceCheck.ts and nowhere else — never
+   * inferred from `note`, whose words are for people and may change.
+   *  - "failed":      we went to ask and nothing usable came back (network, timeout, token, a 4xx/5xx,
+   *                   429/503, a body we can't read). The call was paid for, so a retry costs an attempt.
+   *  - "cap_refused": we never asked — the app's daily register budget was already spent. Nothing
+   *                   was tried, so a retry must not cost the worker an attempt.
+   * Absent on every real answer, and on every card no register of ours can check.
+   */
+  retryable?: "failed" | "cap_refused";
 };
 
 /** States whose registers we can check automatically right now. */

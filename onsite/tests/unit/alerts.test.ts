@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { alertFor, endpointOk, smsFor } from "@/lib/alerts";
+import { alertFor, endpointOk, smsFor, SMS_KINDS } from "@/lib/alerts";
 
 afterEach(() => { delete process.env.PUSH_ENDPOINT_HOSTS; });
 
@@ -22,6 +22,11 @@ describe("what the phone shows", () => {
     expect(n("approve", "boss").url).toBe("/boss/shifts/s1");
     expect(n("offer", "boss").url).toBe("/boss/offers");
     expect(n("dispute", "boss", "x", null).url).toBe("/boss");
+  });
+  it("a card re-check result opens My cards, has a title of its own, and is never worth a text", () => {
+    expect(n("licence_check", "worker", "Your White Card checked out with SafeWork NSW.", null)).toMatchObject({ title: "Card checked", url: "/worker/me", urgent: false, tag: "licence_check:n1" });
+    expect(SMS_KINDS.has("licence_check")).toBe(false);
+    expect([...SMS_KINDS]).toEqual(["shift_match"]);
   });
   it("tags by kind and shift, so a second alert about the same shift replaces the first", () => {
     expect(n("shift_match", "worker").tag).toBe("shift_match:s1");

@@ -73,6 +73,7 @@ npm run test:watch
 - `tests/integration/privacy.test.ts` — a boss sees a worker's phone, never their visa type or card numbers (plus a source guard for boss screens).
 - `tests/unit/whitecard.test.ts` + `tests/unit/verify.test.ts` — the SafeWork NSW register against a stubbed API: token cached, renewed and shared, a failed login never poisoning the cache, 401 retried exactly once, every failure shape (400 included) ending as "couldn't check", a traffic card never passing as a White Card, no stranger's name in any answer, and the register's address fields never leaving the parser.
 - `tests/integration/licences.test.ts` — the save-a-card action against a real DB: ten an hour per worker, a burst that can't slip past it, and a refused save that never reaches the register.
+- `tests/integration/recheck.test.ts` — the White Card re-check queue against a real DB and a stubbed register: only a check that couldn't complete is queued, the backoff to the last try, a budget refusal that costs no attempt and makes no call, an edit mid-check that throws the stale answer away, two runs never taking the same card, the cron's counts-only summary, and seeded demo cards that claim no check.
 - `tests/unit/` — the business rules, each written red → green: Award floor (`clampRate`), ticket normalisation (White Card always), batch size (3× open spots), clock-in labels (300 m / 15 min, a label not a gate), pay maths (OT split, rounding, negative hours), phone normalisation, date helpers.
 - `tests/integration/bugs.test.ts` — one regression per bug from the strict review (ticket wipe, White Card drop, double-booking race, removed-worker rejoin, cancel leaving bookings, counter-offer flow, overtime maths in notifications, OTP throttle, garbage input…).
 - `tests/integration/loop.test.ts` — the whole core loop through the **real server actions** against the seeded DB: post → match → take → clock in/out → approve (edited) → crew auto-add → disagree → paid → same-again → cancel → rematch. Self-cleaning, ~30 s.
@@ -92,12 +93,13 @@ actions/boss.ts      post shift, approve hours, crew, pay, same-again, block…
 actions/worker.ts    availability, take shift, clock in/out, disagree, profile
 app/boss/*           Projects · Post shift · Live shift · Workers · Pay · Me
 app/worker/*         Calendar · Explore (map/list) · Shift · Me (owed, invite)
-app/api/cron/expand  hit every 4 min → widens matching on stale open shifts, sends any unsent alert
+app/api/cron/expand  hit every 4 min → widens matching on stale open shifts, re-checks queued White Cards, sends any unsent alert
 lib/alerts.ts        notifications → web push (+ SMS for shift offers); public/sw.js shows them
 lib/otp.ts           login code rules: crypto codes, hashed at rest, 5 wrong guesses an hour
 lib/bossQueries.ts   what a boss may see about a worker (never visa type or card numbers)
 lib/verify.ts        licence words, states and dates — client-safe, no credentials
 lib/licenceCheck.ts  runs the check and maps it to a status; only 'verified' when one ran and matched
+lib/licenceRecheck.ts  asks the register again about cards it couldn't answer for (cron, backoff, compare-and-set)
 lib/whitecard.ts     SafeWork NSW White Card register over HTTP (address fields dropped at the parser)
 ```
 
@@ -128,9 +130,24 @@ A card is expired at the end of its expiry day **in Sydney** (`lib/util.ts` `TZ`
 
 Anyone signed in can type any number into that form, so the answer never says whose card it is: a name mismatch says only that the number is under a different name, and the register's name is carried back only when it is the name the worker gave. Saving a card is capped at **10 an hour per worker** (`LICENCE_SAVES_PER_HOUR`, the same atomic counter as the login codes); over that the save is refused before the register is asked anything.
 
-**The quota.** API NSW's free tier is **2,500 calls a month**, no per-day figure is published, and there is no sandbox — every key hits production. So on top of the per-worker cap the whole app spends at most `WHITECARD_CHECKS_PER_DAY` register calls a day (default **70**, ≈2,100 a month, leaving headroom for re-checks and `npm run whitecard:ping`). It's charged in `lib/licenceCheck.ts` in the same atomic statement that checks it, immediately before the call goes out: a call that was made and then failed still counts (NSW counted it), a call we refused to make costs nothing. At the ceiling — and whenever the register throttles us, which is **429 or 503** (the sibling NSW gateway answers a spent quota with a 503) — the answer is *couldn't check*, never *not on the register*, and it is never retried: the card stays unchecked and we confirm it by hand.
+**The quota.** API NSW's free tier is **2,500 calls a month**, no per-day figure is published, and there is no sandbox — every key hits production. So on top of the per-worker cap the whole app spends at most `WHITECARD_CHECKS_PER_DAY` register calls a day (default **70**, ≈2,100 a month, leaving headroom for re-checks and `npm run whitecard:ping`). It's charged in `lib/licenceCheck.ts` in the same atomic statement that checks it, immediately before the call goes out: a call that was made and then failed still counts (NSW counted it), a call we refused to make costs nothing. At the ceiling — and whenever the register throttles us, which is **429 or 503** (the sibling NSW gateway answers a spent quota with a 503) — the answer is *couldn't check*, never *not on the register*, and it is never retried on the spot: the card stays unchecked and goes on the re-check queue below.
 
-**Only NSW White Cards are checked automatically.** That register doesn't hold high risk work licences (LF / WP / DG / SB), and no other state has an API, so everything else stays a human check and shows as "on file, not checked". A call that didn't come back — network, timeout, 5xx, 429, a body we can't read, a 401 twice — is *couldn't check*, never *not on the register*: the card stays unchecked and we confirm it by hand.
+**Only NSW White Cards are checked automatically.** That register doesn't hold high risk work licences (LF / WP / DG / SB), and no other state has an API, so everything else stays a human check and shows as "on file, not checked". A call that didn't come back — network, timeout, 5xx, 429, a body we can't read, a 401 twice — is *couldn't check*, never *not on the register*: the card stays unchecked and goes on the re-check queue.
+
+**Re-checks.** A NSW White Card whose check couldn't complete — the register or its token service down, a timeout, a 4xx/5xx, 429/503, or the day's budget spent — is not left unchecked for ever. `checkLicence` says so explicitly (`retryable: "failed" | "cap_refused"`, never read off the note's wording) and `saveLicence` queues the card (`licences.recheck_at`, migration 007); any other save — a real answer, another state, a high risk work licence — takes it off the queue. The 4-minute cron runs `recheckLicences()` (`lib/licenceRecheck.ts`) before it delivers alerts, at most **5 cards a run**:
+
+| | wait before the next try |
+|---|---|
+| save that couldn't check | 5 min |
+| re-check 1 fails | 15 min |
+| re-check 2 fails | 1 h |
+| re-check 3 fails | 3 h |
+| re-check 4 fails | 6 h |
+| re-check 5 fails | 12 h |
+| re-check 6 fails | 24 h |
+| re-check 7 fails | off the queue: stays *unchecked* with the by-hand note, and joins the control room's "cards to check by hand" |
+
+A re-check the **daily budget** turns away asked nothing, so it costs no attempt: the card waits until the budget window rolls over (at least 15 min), and the rest of that run's cards wait with it without asking again. A real answer is written exactly as a save would write it (the worker's own name stays on the card), `workers.tickets` is recomputed, and the worker gets one push — never a text — saying "Your White Card checked out with SafeWork NSW." or the same plain sentence a save would have shown (never the register's name for the card). Cards are claimed with `FOR UPDATE SKIP LOCKED` and a 10-minute lease, so two runs never ask about the same card and a run that dies doesn't hot-loop; every write-back is a compare-and-set on the card as claimed, so an answer about a card the worker has since edited or removed is dropped. The cron's JSON carries `licences: { claimed, verified, not_found, expired, mismatch, retrying, gave_up, cap_deferred }` — counts only. Demo cards from `npm run db:seed` are all *unchecked* and never queued: no quota is spent on made-up numbers.
 
 The register sends each holder's home address, suburb, postcode, vehicle registration and business names with every record. They are dropped at the parser in `lib/whitecard.ts` and carried no further — not into the database, not into a log, not onto a screen. Nothing in that file logs at all: URLs there carry card numbers.
 

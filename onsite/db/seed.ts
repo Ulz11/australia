@@ -157,25 +157,24 @@ async function main() {
   for (const [n, [yrs, trades, langs, about]] of Object.entries(PROF)) {
     await sql`UPDATE workers SET years_exp = ${yrs}, trades = ${trades}, languages = ${langs}, about = ${about} WHERE user_id = ${uid[Number(n)]}`;
   }
-  // Cards: a couple checked, most on file, one expired so the red state is visible.
-  const cards: [number, string, string, string, string | null, string][] = [
-    [101, "WC", "0123456789", "NSW", "2029-04-30", "verified"],
-    [101, "LF", "LF-884213", "NSW", "2028-06-30", "verified"],
-    [102, "WC", "0987654321", "NSW", null, "unchecked"],
-    [103, "WC", "VIC-55120", "VIC", "2030-01-15", "unchecked"],
-    [106, "WC", "0445512399", "NSW", "2027-11-02", "verified"],
-    [106, "DG", "DG-220144", "NSW", "2027-11-02", "verified"],
-    [108, "WC", "0221144556", "NSW", "2031-03-01", "verified"],
-    [114, "WC", "0554433221", "NSW", "2024-08-01", "expired"],
+  // Cards: numbers and expiry dates on file, so "My cards" looks lived in — and every one of them
+  // 'unchecked', with no checked_at, checked_via or note. No register was ever asked about these
+  // made-up numbers, so nothing here may say one was. They are not queued
+  // for a re-check either: the cron must never spend the live register's quota on demo numbers.
+  // Unchecked cards still count for matching (lib/booking.ts recomputeTickets), so the demo loop is unchanged.
+  const cards: [number, string, string, string, string | null][] = [
+    [101, "WC", "0123456789", "NSW", "2029-04-30"],
+    [101, "LF", "LF-884213", "NSW", "2028-06-30"],
+    [102, "WC", "0987654321", "NSW", null],
+    [103, "WC", "VIC-55120", "VIC", "2030-01-15"],
+    [106, "WC", "0445512399", "NSW", "2027-11-02"],
+    [106, "DG", "DG-220144", "NSW", "2027-11-02"],
+    [108, "WC", "0221144556", "NSW", "2031-03-01"],
+    [114, "WC", "0554433221", "NSW", "2024-08-01"],
   ];
-  for (const [n, kind, num, st, exp, status] of cards) {
-    await sql`INSERT INTO licences (worker_id, kind, number, issued_state, expires_on, holder_name, status, checked_at, checked_via, check_note)
-      VALUES (${uid[n]}, ${kind}, ${num}, ${st}, ${exp}, ${workers.find((w) => w[0] === n)![1]}, ${status},
-        ${status === "unchecked" ? null : sql`now() - interval '3 days'`},
-        ${status === "unchecked" ? null : "safework_nsw"},
-        ${status === "verified" ? "Checked against the SafeWork NSW register."
-          : status === "expired" ? "Card ran out 1 Aug 2024. Needs renewing."
-          : "Card on file. NSW check pending."})
+  for (const [n, kind, num, st, exp] of cards) {
+    await sql`INSERT INTO licences (worker_id, kind, number, issued_state, expires_on, holder_name, status, checked_at, checked_via, check_note, recheck_at, check_attempts)
+      VALUES (${uid[n]}, ${kind}, ${num}, ${st}, ${exp}, ${workers.find((w) => w[0] === n)![1]}, 'unchecked', NULL, NULL, NULL, NULL, 0)
       ON CONFLICT (worker_id, kind) DO NOTHING`;
   }
   // Site headcount targets so the cap shows something real

@@ -224,6 +224,74 @@ describe("NSW White Card register — what each answer means", () => {
   });
 });
 
+/**
+ * Whether a card goes on the re-check queue is decided here, explicitly, where each failure happens —
+ * lib/licenceRecheck.ts must never have to guess it from the words of a note.
+ */
+describe("retryable — only a check that was due and gave no answer", () => {
+  const failures: [string, () => void][] = [
+    ["the token service refusing", () => vi.stubGlobal("fetch", vi.fn(async () => json(500, { error: "down" })))],
+    ["the token service not answering at all", () => vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("fetch failed"); }))],
+    ["a timeout on the verify call", () => vi.stubGlobal("fetch", vi.fn(async (url: string | URL) =>
+      String(url).includes("/accesstoken") ? json(200, { access_token: "T1", expires_in: "1799" }) : Promise.reject(new DOMException("timed out", "TimeoutError"))))],
+    ["a 400", () => register(json(400, { ErrorCode: "invalid_request" }))],
+    ["a 429", () => register(json(429, { message: "slow down" }))],
+    ["a 500", () => register(json(500, { ErrorCode: "internal_server_error" }))],
+    ["a 503 (spent quota)", () => register(json(503, { message: "Your API quota or rate limit has been exceeded" }))],
+    ["a body that isn't a list", () => register(json(200, { unexpected: true }))],
+    ["a 401 twice", () => register(json(401, {}), json(401, {}))],
+  ];
+  for (const [what, arrange] of failures) {
+    it(`${what} is "failed"`, async () => {
+      arrange();
+      const r = await checkLicence(wc);
+      expect(r).toMatchObject({ status: "unchecked", via: "manual", retryable: "failed" });
+      expect(r.note).toMatch(/by hand/);
+    });
+  }
+
+  it("the app's daily ceiling is \"cap_refused\" — told apart from a failure, and nothing is asked", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    budget.room = false;
+    try {
+      register(json(200, [card()]));
+      const r = await checkLicence(wc);
+      expect(r).toMatchObject({ status: "unchecked", via: "manual", retryable: "cap_refused" });
+      expect(calls).toHaveLength(0);
+    } finally {
+      budget.room = true;
+      err.mockRestore();
+    }
+  });
+
+  it("every real answer carries no retry flag", async () => {
+    const answers: Response[][] = [
+      [json(200, [card()])],                                         // verified
+      [json(200, [])],                                               // not_found
+      [json(200, [card({ status: "Expired" })])],                    // expired
+      [json(200, [card({ licensee: "Tom Walsh" })])],                // mismatch
+      [json(200, [card({ licenceType: "Traffic Control Work Card" })])],
+      [json(200, [card({ licenceType: null })])],                    // an answer that still needs a person
+    ];
+    for (const a of answers) {
+      register(...a);
+      const r = await checkLicence(wc);
+      expect(r.retryable, `${r.status}: ${r.note}`).toBeUndefined();
+    }
+  });
+
+  it("cards no register of ours can check are never retryable, and cost no call", async () => {
+    register();
+    expect((await checkLicence({ ...wc, issued_state: "VIC" })).retryable).toBeUndefined();
+    expect((await checkLicence({ ...wc, kind: "LF", number: "1234567" })).retryable).toBeUndefined();
+    expect((await checkLicence({ ...wc, expires_on: "2020-01-01" })).retryable).toBeUndefined();   // expired by its own date
+    vi.stubEnv("WHITE_CARD_API_KEY", "");
+    vi.stubEnv("WHITE_CARD_API_SECRET", "");
+    expect((await checkLicence(wc)).retryable).toBeUndefined();                                    // no keys: retrying can't help
+    expect(calls).toHaveLength(0);
+  });
+});
+
 describe("namesMatch — registers spell names differently", () => {
   it("matches across middle names, order and punctuation", () => {
     expect(namesMatch("BATBAYAR ERDENE", "Batbayar Erdene")).toBe(true);

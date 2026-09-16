@@ -194,8 +194,8 @@ async function call(number: string, retried: boolean): Promise<WhiteCardRecord[]
     // 429 and 503 are the same answer for a different reason: we're throttled. The product page
     // documents no status for a spent quota, and the sibling NSW gateway answers one with a 503
     // ("Your API quota or rate limit has been exceeded"), so both are read as "couldn't check" —
-    // never as "absent", and never retried, because a retry is one more call against the quota
-    // that just ran out.
+    // never as "absent", and never retried here, because a retry is one more call against the quota
+    // that just ran out. (lib/licenceRecheck.ts asks again later, on a backoff, within the day's budget.)
     if (!res.ok) return null;
     const body: unknown = await res.json();
     if (!Array.isArray(body)) return null;                        // a shape we don't understand is "couldn't check"

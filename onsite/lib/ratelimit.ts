@@ -92,5 +92,13 @@ export const refund = (key: string, windowSeconds: number) => sql`
   UPDATE rate_limits SET hits = GREATEST(0, hits - 1)
   WHERE key = ${key} AND window_start > now() - make_interval(secs => ${windowSeconds})`;
 
+/** When the live window `hit` opened on this key closes — null when there is no live window. */
+export async function windowEndsAt(key: string, windowSeconds: number): Promise<Date | null> {
+  const [r] = await sql<{ at: Date }[]>`
+    SELECT window_start + make_interval(secs => ${windowSeconds}) AS at FROM rate_limits
+    WHERE key = ${key} AND window_start > now() - make_interval(secs => ${windowSeconds})`;
+  return r?.at ?? null;
+}
+
 /** Old windows are useless; the cron sweeps them. */
 export const sweepRateLimits = () => sql`DELETE FROM rate_limits WHERE window_start < now() - interval '1 day'`;

@@ -27,7 +27,7 @@ import { hit, refund } from "./ratelimit";
 
 export const ALERT_MAX_AGE_MIN = 30;
 /** Kinds worth a paid text when push can't carry them. Everything else is push-only. */
-const SMS_KINDS = new Set(["shift_match"]);
+export const SMS_KINDS: ReadonlySet<string> = new Set(["shift_match"]);
 export const SMS_PER_PERSON_PER_DAY = 5;
 const smsPerHour = () => Number(process.env.SMS_ALERTS_PER_HOUR) || 500;
 /** No single boss may take the whole app's texting budget and leave everyone else's offers silent. */
@@ -44,6 +44,7 @@ const TITLES: Record<string, string> = {
   shift_match: "Shift near you", booking: "Shift taken", approve: "Hours to approve", hours_approved: "Hours approved",
   paid: "Paid", offer: "Deal request", offer_accepted: "Deal agreed", offer_declined: "Deal declined", counter: "Counter-offer",
   cancelled: "Shift cancelled", removed: "Taken off a shift", dispute: "Worker disagrees", weather: "Weather stop", test: "Alerts are on",
+  licence_check: "Card checked",            // a White Card the register couldn't answer for at save time (lib/licenceRecheck.ts) — push only
 };
 
 export type Alert = { title: string; body: string; url: string; tag: string; urgent: boolean };
@@ -55,7 +56,7 @@ export function alertFor(n: { id: string; kind: string; body: string; shift_id: 
   const url = boss
     ? n.kind === "offer" ? "/boss/offers" : n.shift_id ? `/boss/shifts/${n.shift_id}` : "/boss"
     : n.kind === "shift_match" ? "/worker"
-    : ["hours_approved", "paid", "test"].includes(n.kind) ? "/worker/me"
+    : ["hours_approved", "paid", "test", "licence_check"].includes(n.kind) ? "/worker/me"
     : ["counter", "offer_accepted", "offer_declined"].includes(n.kind) ? "/worker/offers"
     : "/worker/shift";
   return { title: urgent ? "Starts soon — shift near you" : TITLES[n.kind] ?? "OnSite", body: n.body, url, tag: `${n.kind}:${n.shift_id ?? n.id}`, urgent };
