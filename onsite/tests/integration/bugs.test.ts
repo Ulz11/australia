@@ -26,11 +26,13 @@ describe.skipIf(!process.env.DATABASE_URL)("regressions from the strict review",
     await sql`DELETE FROM bookings b USING shifts s WHERE s.id = b.shift_id AND s.day >= CURRENT_DATE + 3 AND b.worker_id IN (${bat}, ${nima})`;
     await sql`DELETE FROM blocks WHERE boss_id = ${dave}`;
     await sql`DELETE FROM otp_codes WHERE phone = '+61400009999'`;
+    await sql`DELETE FROM rate_limits WHERE key LIKE 'shift-post:%'`;   // this file posts plenty of shifts as Dave
   });
   afterAll(async () => {
     if (made.length) await sql`DELETE FROM shifts WHERE id = ANY(${made})`;
     await sql`DELETE FROM blocks WHERE boss_id = ${dave}`;
     await sql`DELETE FROM otp_codes WHERE phone = '+61400009999'`;
+    await sql`DELETE FROM rate_limits WHERE key = 'otp-send:all'`;   // shared with otp.test.ts, which asserts on it
   });
 
   async function post(extra: Record<string, string> = {}) {
@@ -190,10 +192,13 @@ describe.skipIf(!process.env.DATABASE_URL)("matching engine after the simulation
     const { createShift } = await import("@/actions/boss");
     try { await createShift(fd({ project_id: site.id, day, start_time: "06:30", hours: "8", spots: "2", role: "General labourer", rate: "36" })); } catch { /* redirect */ }
     const [sh] = await sql`SELECT id, notify_round FROM shifts WHERE boss_id = ${dave.id} AND day = ${day} ORDER BY created_at DESC LIMIT 1`;
-    const asked = await sql`SELECT n.user_id, COALESCE(st.past_shifts,0)::int AS past FROM notifications n LEFT JOIN worker_stats st ON st.worker_id = n.user_id WHERE n.shift_id = ${sh.id} AND n.kind = 'shift_match'`;
-    expect(asked.length).toBeGreaterThan(1);
-    expect(asked.some((a) => a.past < 3)).toBe(true);          // someone new got a seat
-    await sql`DELETE FROM shifts WHERE id = ${sh.id}`;
+    try {
+      const asked = await sql`SELECT n.user_id, COALESCE(st.past_shifts,0)::int AS past FROM notifications n LEFT JOIN worker_stats st ON st.worker_id = n.user_id WHERE n.shift_id = ${sh.id} AND n.kind = 'shift_match'`;
+      expect(asked.length).toBeGreaterThan(1);
+      expect(asked.some((a) => a.past < 3)).toBe(true);          // someone new got a seat
+    } finally {
+      await sql`DELETE FROM shifts WHERE id = ${sh.id}`;         // even when it fails, don't leave a shift for the next file to trip on
+    }
   }, 60_000);
 });
 

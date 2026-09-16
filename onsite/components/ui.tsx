@@ -31,8 +31,25 @@ export function Row({ href, title, sub, right, tone }: { href?: string; title: R
 
 export function Big({ n, label, hot }: { n: string | number; label: string; hot?: boolean }) {
   return (
-    <div className={`rounded-2xl p-4 ${hot ? "bg-hv text-ink" : "bg-white border border-line"}`}>
+    // min-w-0: a grid item won't shrink below its content without it, so a long value pushes out of the card.
+    <div className={`rounded-2xl p-4 min-w-0 ${hot ? "bg-hv text-ink" : "bg-white border border-line"}`}>
       <div className="text-3xl font-extrabold num leading-none">{n}</div>
+      <div className="text-sm font-semibold mt-1 opacity-80">{label}</div>
+    </div>
+  );
+}
+
+/**
+ * A money tile. Dollars big, cents small: the exact figure in about half the width, because
+ * "$1,991.00" at one size overflows a third of a phone screen. `hero` is the number being acted on.
+ */
+export function BigMoney({ n, label, hot, hero }: { n: number; label: string; hot?: boolean; hero?: boolean }) {
+  const [dollars, cents] = money(n).split(".");
+  return (
+    <div className={`rounded-2xl p-4 min-w-0 ${hot ? "bg-hv text-ink" : "bg-white border border-line"}`}>
+      <div className={`num font-extrabold leading-none tracking-tight ${hero ? "text-4xl" : "text-[clamp(1.25rem,6.5vw,1.875rem)]"}`}>
+        {dollars}<span className="text-[0.5em] align-top">.{cents}</span>
+      </div>
       <div className="text-sm font-semibold mt-1 opacity-80">{label}</div>
     </div>
   );

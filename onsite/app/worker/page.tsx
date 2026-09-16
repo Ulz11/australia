@@ -5,6 +5,8 @@ import { Say } from "@/components/ui";
 import { openShiftsNear, myBookings } from "@/lib/workerQueries";
 import { Calendar } from "./Calendar";
 import Link from "next/link";
+import { savedPushFingerprint } from "@/lib/alerts";
+import { AlertsToggle } from "@/components/AlertsToggle";
 export const dynamic = "force-dynamic";
 
 export default async function WorkerHome() {
@@ -23,6 +25,7 @@ export default async function WorkerHome() {
       <Header title={`G'day, ${u.name?.split(" ")[0]}`} />
       <Page>
         {!w.has_home && <Link href="/worker/me" className="block"><Say tone="orange" title="Tell us where you live" sub="Tap here. We only show shifts near you." /></Link>}
+        {process.env.VAPID_PUBLIC_KEY && <AlertsToggle publicKey={process.env.VAPID_PUBLIC_KEY} savedPush={await savedPushFingerprint(u.id)} role="worker" compact />}
         {matched > 0 && <Say tone="orange" title={`${matched} shift${matched > 1 ? "s" : ""} near you`} sub="Orange dot on the calendar. Tap the day, then tap Take it." />}
         {notes.map((n) => <Say key={n.id} tone={n.kind === "paid" ? "green" : n.kind === "removed" || n.kind === "cancelled" ? "red" : "dark"} title={n.body} />)}
         <Calendar

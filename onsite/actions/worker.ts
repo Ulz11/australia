@@ -5,6 +5,7 @@ import { sql } from "@/lib/db";
 import { requireRole, createSession } from "@/lib/session";
 import { fmtDay, todayIso, addDays } from "@/lib/util";
 import { bookWorker, recomputeTickets } from "@/lib/booking";
+import { sendAlertsSoon } from "@/lib/alerts";
 import { isUuid, isDay, num, isLatLng } from "@/lib/validate";
 
 export async function setAvailability(day: string, status: "free" | "busy") {
@@ -61,6 +62,7 @@ export async function cancelBooking(bookingId: string) {
     SELECT s.boss_id, b.shift_id, 'cancelled', ${u.name} || ' pulled out of ' || to_char(s.day, 'Dy DD Mon') || '. Matching is running again.'
     FROM b JOIN shifts s ON s.id = b.shift_id RETURNING shift_id`;
   if (b) {
+    sendAlertsSoon();
     const { runMatchingRound } = await import("@/lib/matching");
     await runMatchingRound(b.shift_id);
   }
@@ -96,6 +98,7 @@ export async function clockOut(bookingId: string) {
     INSERT INTO notifications (user_id, shift_id, kind, body)
     SELECT s.boss_id, u.shift_id, 'approve', ${u.name} || ' clocked out: ' || u.hours_worked || 'h on ' || to_char(s.day, 'Dy DD Mon') || '. Approve hours.'
     FROM u JOIN shifts s ON s.id = u.shift_id RETURNING shift_id`;
+  if (b) sendAlertsSoon();
   revalidatePath("/worker/shift");
   return { ok: !!b };
 }
@@ -108,6 +111,7 @@ export async function disagree(bookingId: string) {
     INSERT INTO notifications (user_id, shift_id, kind, body)
     SELECT s.boss_id, b.shift_id, 'dispute', ${u.name} || ' disagrees with the approved hours for ' || to_char(s.day, 'Dy DD Mon') || '. Give them a call.'
     FROM b JOIN shifts s ON s.id = b.shift_id`;
+  sendAlertsSoon();
   revalidatePath("/worker/me");
 }
 
@@ -140,7 +144,9 @@ export async function workerLogCall(toUser: string, bookingId?: string) {
 
 // ───────────────────────────────────────────────── profile, licences, offers
 import { checkOffer } from "@/lib/rules";
-import { checkLicence, type LicenceKind } from "@/lib/verify";
+import { type LicenceKind } from "@/lib/verify";
+import { checkLicence } from "@/lib/licenceCheck";
+import { hit, LICENCE_SAVES_PER_HOUR } from "@/lib/ratelimit";
 
 import { PHOTO_MAX_BYTES, TRADES, LANGUAGES } from "@/lib/profile";
 
@@ -188,6 +194,12 @@ export async function saveLicence(form: FormData) {
   if (!["NSW", "VIC", "QLD", "WA", "SA", "TAS", "ACT", "NT"].includes(issued_state)) return { error: "Pick the state on the card." };
   const holder_name = String(form.get("holder_name") || u.name || "").trim().slice(0, 100);
   if (!number) return { error: "Type the number printed on the card." };
+
+  // Cards change about twice a year, not twice a minute. The cap is really about the register:
+  // without it one signed-in account can walk card numbers all day, and every walk is a live lookup.
+  // It is spent only once the form is otherwise good, so a typo doesn't cost a worker their allowance.
+  if (!(await hit(`licence-save:${u.id}`, LICENCE_SAVES_PER_HOUR, 3600)))
+    return { error: "Too many card changes for now — try again in an hour." };
 
   const result = await checkLicence({ kind, number, issued_state, holder_name, expires_on });
   await sql`
@@ -248,6 +260,7 @@ export async function makeOffer(form: FormData) {
     )
     INSERT INTO notifications (user_id, shift_id, kind, body)
     SELECT ${s.boss_id}, ${shiftId}, 'offer', ${`${u.name} wants to talk about ${fmtDay(s.day)} at ${s.site}: ${summary}`} FROM o`;
+  sendAlertsSoon();
   revalidatePath("/worker/offers");
   return { ok: true };
 }

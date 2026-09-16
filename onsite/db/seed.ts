@@ -8,7 +8,9 @@
 import postgres from "postgres";
 const sql = postgres(process.env.DATABASE_URL!, { ssl: "require", max: 1 });
 
-const day = (n: number) => { const d = new Date(); d.setUTCHours(0, 0, 0, 0); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+// Days count from Sydney's today, not UTC's: the app's DB session runs in Australia/Sydney, so UTC dates were a day behind every morning.
+const sydneyToday = new Date().toLocaleDateString("en-CA", { timeZone: process.env.APP_TZ || "Australia/Sydney" });
+const day = (n: number) => { const d = new Date(sydneyToday + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const P = (n: number) => `+61400000${String(n).padStart(3, "0")}`;
 
 const bosses = [
@@ -204,6 +206,8 @@ async function main() {
   // Give the open shifts a mix of overtime terms so the worker cards show it
   await sql`UPDATE shifts SET ot_mode = 'custom', ot_after_hours = 8, ot_multiplier = 1.75 WHERE status = 'open' AND rate > 40`;
   await sql`UPDATE shifts SET allow_offers = false WHERE status = 'open' AND role = 'Cleaner / demo'`;
+
+  await sql`UPDATE notifications SET sent_at = now(), sent_via = 'seed' WHERE sent_at IS NULL`;   // demo history, never alert on it
 
   const [c] = await sql`SELECT (SELECT COUNT(*) FROM users WHERE phone LIKE '+6140000%') AS users, (SELECT COUNT(*) FROM projects) AS sites, (SELECT COUNT(*) FROM shifts WHERE status='open') AS open, (SELECT COUNT(*) FROM bookings) AS bookings,
     (SELECT COUNT(*) FROM licences) AS cards, (SELECT COUNT(*) FROM offers) AS offers`;

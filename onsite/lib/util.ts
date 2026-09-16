@@ -1,5 +1,12 @@
 export const fmtDay = (d: string) =>
   new Date(d + "T00:00:00Z").toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
+/** A week, short enough for a phone: "14 – 20 Sept", or "28 Sept – 4 Oct" across a month boundary. */
+export const fmtRange = (a: string, b: string) => {
+  const at = new Date(a + "T00:00:00Z"), bt = new Date(b + "T00:00:00Z");
+  const part = (d: Date, month: boolean) =>
+    d.toLocaleDateString("en-AU", { day: "numeric", ...(month ? { month: "short" } : {}), timeZone: "UTC" });
+  return `${part(at, at.getUTCMonth() !== bt.getUTCMonth())} – ${part(bt, true)}`;
+};
 export const fmtTime = (t: string) => {
   const [h, m] = t.split(":").map(Number);
   const ap = h >= 12 ? "pm" : "am";

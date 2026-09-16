@@ -1,5 +1,11 @@
 /**
- * Licence checking.
+ * Licence facts and words — the client-safe half.
+ *
+ * This module is imported by a client component (app/worker/me/Licences.tsx), so it must stay
+ * pure: no database, no fetch, no credentials. The code that actually calls a register lives in
+ * lib/licenceCheck.ts, which nothing on the client may import — otherwise lib/whitecard.ts
+ * (and the WHITE_CARD_* environment it reads) rides into a browser chunk on the back of a
+ * `licenceWords` import. tests/integration/privacy.test.ts walks the import graph to keep it so.
  *
  * What's actually possible in Australia, as of Sept 2026:
  *
@@ -7,17 +13,21 @@
  *    Each state regulator runs its own, and several can only confirm over the phone.
  *  - NSW is the good one: verify.licence.nsw.gov.au carries both White Cards (GCIT)
  *    and high risk work licences. Programmatic access goes through the Service NSW
- *    API portal (api.nsw.gov.au) and needs a registered developer account + key.
+ *    API portal (api.nsw.gov.au) and needs a registered developer account + key — and
+ *    the register behind that API holds only White Cards and Traffic Control Work Cards.
  *  - Commercial aggregators (WorkClear and friends) cover builder/trade/real-estate/
  *    security licences — NOT White Cards and NOT high risk work licences. They don't
  *    solve this problem, whatever the marketing says.
  *
- * So: this module has one provider per source. NSW is wired and switches on the
- * moment NSW_LICENCE_API_KEY exists. Everywhere else falls back to a human check.
+ * So: one provider per source, in lib/licenceCheck.ts. NSW White Cards are wired and
+ * switch on the moment the WHITE_CARD_* keys exist (lib/whitecard.ts does the HTTP). NSW
+ * high risk work licences are NOT in that register — they, and every other state, fall
+ * back to a human check.
  *
  * The rule that matters: a licence is only ever marked 'verified' when a check
  * actually ran and actually matched. We never imply a check we didn't do.
  */
+import { todayIso } from "@/lib/util";
 
 export type LicenceKind = "WC" | "LF" | "WP" | "DG" | "SB";
 export type LicenceStatus = "unchecked" | "checking" | "verified" | "not_found" | "expired" | "mismatch";
@@ -40,6 +50,14 @@ export type CheckResult = {
 /** States whose registers we can check automatically right now. */
 export const AUTO_STATES = ["NSW"] as const;
 
+/** Card types on an automatic register. The NSW register holds White Cards, not HRW licences. */
+export const AUTO_KINDS = ["WC"] as const;
+
+/** Will this card be checked the moment it's saved? Pure — the screens ask it too. */
+export function canAutoCheck(kind: string, state: string): boolean {
+  return (AUTO_KINDS as readonly string[]).includes(kind) && (AUTO_STATES as readonly string[]).includes(state);
+}
+
 export const STATES = ["NSW", "VIC", "QLD", "WA", "SA", "TAS", "ACT", "NT"] as const;
 
 /** Where a worker goes to sort out a card themselves, per state. */
@@ -54,47 +72,18 @@ export const REGULATOR: Record<string, { name: string; url: string }> = {
   NT: { name: "NT WorkSafe", url: "https://worksafe.nt.gov.au" },
 };
 
-/** Is this card past its date? Checked locally regardless of register access. */
-export function isExpired(expires_on?: string | null): boolean {
-  if (!expires_on) return false;
-  return new Date(expires_on + "T23:59:59") < new Date();
-}
-
 /**
- * NSW: SafeWork register via the Service NSW licence API.
- * Needs NSW_LICENCE_API_KEY. Until that's set this returns null and we fall back
- * to a human check — deliberately, rather than guessing at a result.
+ * Is this card past its date? Checked locally regardless of register access.
+ *
+ * A card is good until the end of its expiry day *on site* — Sydney, not wherever the server
+ * happens to run. Comparing days as strings does that in one step: a UTC box (Render is one)
+ * comparing `new Date(day + "T23:59:59")` against `now` would keep a card alive for the ten
+ * hours after Sydney's midnight, which is a whole working morning on an expired card.
  */
-async function checkNsw(req: CheckRequest): Promise<CheckResult | null> {
-  const key = process.env.NSW_LICENCE_API_KEY;
-  const base = process.env.NSW_LICENCE_API_URL;
-  if (!key || !base) return null;
-  try {
-    const url = new URL(base);
-    url.searchParams.set("licenceNumber", req.number);
-    url.searchParams.set("licenceType", req.kind === "WC" ? "GCIT" : "HRW");
-    const res = await fetch(url, { headers: { apikey: key, Accept: "application/json" }, signal: AbortSignal.timeout(8000) });
-    if (!res.ok) return null;                       // treat any hiccup as "couldn't check"
-    const j = (await res.json()) as Record<string, unknown> & { results?: Record<string, unknown>[]; licence?: Record<string, unknown> };
-    const rec = Array.isArray(j?.results) ? j.results[0] : j?.licence ?? j;
-    if (!rec) return { status: "not_found", via: "safework_nsw", note: "SafeWork NSW has no card with that number." };
-
-    const str = (v: unknown) => (typeof v === "string" && v ? v : null);
-    const expiry = str(rec.expiryDate) ?? str(rec.expires_on);
-    const name = str(rec.licenceHolderName) ?? str(rec.holderName);
-    const live = (str(rec.status) ?? str(rec.licenceStatus) ?? "").toLowerCase();
-
-    if (live.includes("cancel") || live.includes("suspend"))
-      return { status: "not_found", via: "safework_nsw", note: `SafeWork NSW shows this card as ${live}.`, expires_on: expiry, holder_name: name };
-    if (isExpired(expiry))
-      return { status: "expired", via: "safework_nsw", note: `Card expired ${expiry}.`, expires_on: expiry, holder_name: name };
-    if (name && !namesMatch(name, req.holder_name))
-      return { status: "mismatch", via: "safework_nsw", note: `That card is registered to a different name (${name}).`, expires_on: expiry, holder_name: name };
-
-    return { status: "verified", via: "safework_nsw", note: "Checked against the SafeWork NSW register.", expires_on: expiry, holder_name: name };
-  } catch {
-    return null;
-  }
+export function isExpired(expires_on?: string | null): boolean {
+  const day = String(expires_on ?? "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;   // no date, or one we can't read, is not an expired card
+  return day < todayIso();
 }
 
 /** Loose name match — middle names, order and punctuation differ between registers. */
@@ -104,26 +93,6 @@ export function namesMatch(a: string, b: string): boolean {
   if (!A.length || !B.length) return false;
   const shared = A.filter((w) => B.includes(w)).length;
   return shared >= Math.min(2, Math.min(A.length, B.length));
-}
-
-/**
- * Run whatever check is available for this card.
- * Always returns something honest — never a false 'verified'.
- */
-export async function checkLicence(req: CheckRequest): Promise<CheckResult> {
-  if (isExpired(req.expires_on))
-    return { status: "expired", via: "manual", note: `This card ran out on ${req.expires_on}.` };
-
-  if (req.issued_state === "NSW") {
-    const nsw = await checkNsw(req);
-    if (nsw) return nsw;
-  }
-  const reg = REGULATOR[req.issued_state]?.name ?? "the state regulator";
-  return {
-    status: "unchecked",
-    via: "manual",
-    note: `Card details saved. ${req.issued_state} can't be checked automatically yet — we'll confirm it with ${reg} by hand.`,
-  };
 }
 
 /** Plain words + colour for a licence badge. Never overstates what we know. */

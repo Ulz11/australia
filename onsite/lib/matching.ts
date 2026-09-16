@@ -1,4 +1,5 @@
 import { sql } from "./db";
+import { sendAlertsSoon } from "./alerts";
 import { fmtDay, fmtTime } from "./util";
 import { pickBatch, urgencyOf, NEW_WORKER_PRIOR, ROUND_MINUTES, URGENT_HOURS, type Candidate } from "./rules";
 
@@ -58,6 +59,7 @@ export async function runMatchingRound(shiftId: string): Promise<{ notified: num
   if (sh.direct_worker_id) {
     const body = `${sh.site}: ${fmtDay(sh.day)} ${fmtTime(sh.start_time)}, ${Number(sh.hours)}h, $${Number(sh.rate).toFixed(2)}/h. Booked directly for you.`;
     await sql`INSERT INTO notifications (user_id, shift_id, kind, body) VALUES (${sh.direct_worker_id}, ${shiftId}, 'shift_match', ${body}) ON CONFLICT DO NOTHING`;
+    sendAlertsSoon();
     await sql`UPDATE shifts SET notify_round = notify_round + 1, last_notified_at = now() WHERE id = ${shiftId}`;
     return { notified: 1, remaining, urgent: u.urgent };
   }
@@ -75,6 +77,7 @@ export async function runMatchingRound(shiftId: string): Promise<{ notified: num
     batch.map((c) => ({ user_id: c.user_id, shift_id: shiftId, kind: "shift_match", body })),
     "user_id", "shift_id", "kind", "body"
   )} ON CONFLICT DO NOTHING`;
+  sendAlertsSoon();
   await sql`UPDATE shifts SET notify_round = notify_round + 1, last_notified_at = now() WHERE id = ${shiftId}`;
   return { notified: batch.length, remaining, urgent: u.urgent };
 }

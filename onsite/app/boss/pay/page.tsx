@@ -2,10 +2,10 @@ import Link from "next/link";
 import { sql } from "@/lib/db";
 import { requireRole } from "@/lib/session";
 import { Header, Page, Empty } from "@/components/Header";
-import { Big } from "@/components/ui";
+import { BigMoney } from "@/components/ui";
 import { money, SUPER_RATE } from "@/lib/award";
 import { payForShift } from "@/lib/rules";
-import { addDays, fmtDay, todayIso, weekStart } from "@/lib/util";
+import { addDays, fmtDay, fmtRange, todayIso, weekStart } from "@/lib/util";
 import { markPaidMany } from "@/actions/boss";
 import { PaidToggle } from "./PaidToggle";
 export const dynamic = "force-dynamic";
@@ -39,14 +39,22 @@ export default async function Pay({ searchParams }: { searchParams: Promise<{ we
     <>
       <Header title="Pay" right={<a href={`/boss/pay/export?week=${ws}`} className="btn-ghost btn-sm">Export</a>} />
       <Page>
-        <div className="flex items-center justify-between card py-2">
-          <Link href={`/boss/pay?week=${addDays(ws, -7)}`} className="btn-ghost btn-sm">‹ Last week</Link>
-          <div className="text-center font-bold">{fmtDay(ws)} – {fmtDay(we)}</div>
-          <Link href={`/boss/pay?week=${addDays(ws, 7)}`} className="btn-ghost btn-sm">Next ›</Link>
+        {/* Date on its own line: three items in one row can't hold a week range and two full-width tap targets. */}
+        <div className="card py-3 space-y-2">
+          <div className="text-center font-bold num">{fmtRange(ws, we)}</div>
+          <div className="grid grid-cols-2 gap-2">
+            <Link href={`/boss/pay?week=${addDays(ws, -7)}`} className="btn-ghost btn-sm w-full whitespace-nowrap">‹ Last week</Link>
+            <Link href={`/boss/pay?week=${addDays(ws, 7)}`} className="btn-ghost btn-sm w-full whitespace-nowrap">Next week ›</Link>
+          </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-2">
-          <Big n={money(totals.owed)} label="Still to pay" hot={totals.owed > 0} /><Big n={money(totals.gross)} label="Wages this week" /><Big n={money(totals.sup)} label="Super on top" />
+        {/* What you owe is the number you act on, so it gets the width. The other two are context. */}
+        <div className="space-y-2">
+          <BigMoney n={totals.owed} label="Still to pay" hot={totals.owed > 0} hero />
+          <div className="grid grid-cols-2 gap-2">
+            <BigMoney n={totals.gross} label="Wages this week" />
+            <BigMoney n={totals.sup} label="Super on top" />
+          </div>
         </div>
 
         <p className="text-steel">

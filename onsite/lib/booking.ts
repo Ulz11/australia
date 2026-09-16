@@ -1,6 +1,7 @@
 import { sql } from "./db";
 import type { TransactionSql } from "postgres";
 import { fmtDay } from "./util";
+import { sendAlertsSoon } from "./alerts";
 
 /**
  * The one way a worker gets onto a shift. Used by "Take it", by a boss accepting
@@ -20,7 +21,7 @@ export type BookArgs = {
 export type BookResult = { ok: true; day: string; site: string } | { ok: false; error: string };
 
 export async function bookWorker(a: BookArgs): Promise<BookResult> {
-  return sql.begin(async (tx) => {
+  const result = await (sql.begin(async (tx) => {
     // Lock the shift for the length of this transaction.
     const [s] = await tx`
       SELECT s.id, s.status, s.day::text AS day, s.spots, s.boss_id, s.direct_worker_id, p.name AS site,
@@ -54,7 +55,9 @@ export async function bookWorker(a: BookArgs): Promise<BookResult> {
       await tx`INSERT INTO notifications (user_id, shift_id, kind, body)
                VALUES (${a.notify.userId}, ${a.shiftId}, ${a.notify.kind}, ${a.notify.body(fmtDay(s.day), s.site)})`;
     return { ok: true, day: s.day, site: s.site };
-  }) as Promise<BookResult>;
+  }) as Promise<BookResult>);
+  if (result.ok && a.notify) sendAlertsSoon();
+  return result;
 }
 
 async function today(tx: TransactionSql): Promise<string> {

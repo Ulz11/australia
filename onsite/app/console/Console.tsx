@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 type Person = { id: string; phone: string; name: string; sub: string };
 type Counts = { bosses: number; workers: number; sites: number; open_shifts: number; live_bookings: number; to_approve: number; owed: number; open_offers: number; cards_to_check: number; notifs_24h: number };
 type Ev = { id: string; kind: string; body: string; user_id: string; created_at: string; name: string; role: string };
-type Env = { db: boolean; twilio: boolean; nsw: boolean; cron: boolean; devOtp: boolean; node: string };
+type Env = { db: boolean; twilio: boolean; nsw: boolean; push: boolean; qpay: boolean; cron: boolean; devOtp: boolean; node: string };
 
 const local = (p: string) => p.replace("+61", "0").replace(/(\d{4})(\d{3})(\d{3})/, "$1 $2 $3");
 const KIND: Record<string, string> = {
@@ -138,7 +138,9 @@ export function Console({ bosses, workers, counts: c0, env, tests, resultsHtml, 
             <ul className="cr-env">
               <Row ok={env.db} label="Database" hint="Neon Postgres + PostGIS, Sydney" />
               <Row ok={env.twilio} label="SMS (Twilio)" hint={env.twilio ? "codes go by text" : env.devOtp ? "stubbed — code shows on screen" : "not set: nobody can sign in"} warn={!env.twilio && !env.devOtp} />
-              <Row ok={env.nsw} label="White Card check (SafeWork NSW)" hint={env.nsw ? "automatic for NSW cards" : "no API key — cards marked 'on file, not checked'"} />
+              <Row ok={env.nsw} label="White Card check (SafeWork NSW)" hint={env.nsw ? "automatic for NSW White Cards" : "no API key — cards marked 'on file, not checked'"} />
+              <Row ok={env.push} label="Phone alerts (web push)" hint={env.push ? "buzzes phones that turned alerts on; texts shift offers otherwise" : "no VAPID keys — shift offers go by text only"} warn={!env.push && !env.twilio} />
+              <Row ok={env.qpay} label="Payments (QPay)" hint={env.qpay ? "invoices in MNT, confirmed via payment check" : "no credentials — billing off"} />
               <Row ok={env.cron} label="Matching cron secret" hint="widens matching every 4 min, keeps Neon awake" />
               <Row ok={env.node === "production"} label={`Mode: ${env.node}`} hint={env.node === "production" ? "" : "use npm run build && npm start to feel real speed"} neutral />
             </ul>

@@ -1,5 +1,5 @@
 import { SignJWT, jwtVerify } from "jose";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
 import { sql } from "./db";
@@ -41,6 +41,27 @@ export async function createSession(userId: string) {
 
 export async function destroySession() { (await cookies()).delete(COOKIE); }
 
+/** Verify a JWT and unpack the user it carries. No database trip. */
+export async function userFromToken(token: string | undefined | null): Promise<SessionUser | null> {
+  if (!token) return null;
+  try {
+    const { payload } = await jwtVerify(token, secret());
+    if (!payload.sub) return null;
+    return { id: payload.sub, phone: String(payload.phone ?? ""), name: (payload.name as string) ?? null, role: (payload.role as SessionUser["role"]) ?? null, lang: String(payload.lang ?? "en") };
+  } catch { return null; }
+}
+
+/**
+ * Who is calling an /api/v1 route. The mobile app has no cookie jar, so the same JWT
+ * travels as a bearer token; a browser calling the same route still works via the cookie.
+ * Note proxy.ts does not match /api/*, so every handler must call this itself.
+ */
+export const getApiUser = cache(async (): Promise<SessionUser | null> => {
+  const auth = (await headers()).get("authorization");
+  const bearer = auth?.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : null;
+  return (await userFromToken(bearer)) ?? (await getUser());
+});
+
 /** One verification per request (React cache), no DB. */
 export const getUser = cache(async (): Promise<SessionUser | null> => {
   if (process.env.TEST_USER_ID && process.env.NODE_ENV !== "production") {
@@ -49,7 +70,8 @@ export const getUser = cache(async (): Promise<SessionUser | null> => {
   }
   const jar = await cookies();
   // A control-room frame cookie only reaches its own path, so if one is present it wins.
-  const token = jar.get(FRAME_COOKIES.boss)?.value ?? jar.get(FRAME_COOKIES.worker)?.value ?? jar.get(COOKIE)?.value;
+  const frame = process.env.DEMO_CONSOLE === "1" ? jar.get(FRAME_COOKIES.boss)?.value ?? jar.get(FRAME_COOKIES.worker)?.value : undefined;
+  const token = frame ?? jar.get(COOKIE)?.value;
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, secret());

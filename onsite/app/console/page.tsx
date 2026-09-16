@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { sql } from "@/lib/db";
 import { mdToHtml } from "@/lib/md";
+import { whitecardConfigured } from "@/lib/whitecard";
 import { Console } from "./Console";
 import "./console.css";
 export const dynamic = "force-dynamic";
@@ -30,13 +31,15 @@ export default async function ControlRoom() {
           (SELECT COUNT(*) FROM licences WHERE status = 'unchecked')::int AS cards_to_check,
           (SELECT COUNT(*) FROM notifications WHERE created_at > now() - interval '24 hours')::int AS notifs_24h`,
   ]);
-  const read = (p: string) => { try { return fs.readFileSync(path.join(process.cwd(), p), "utf8"); } catch { return ""; } };
+  const read = (p: string) => { try { return fs.readFileSync(path.join(/*turbopackIgnore: true*/ process.cwd(), p), "utf8"); } catch { return ""; } };
   const results = mdToHtml(read("sim/RESULTS.md") || "_Run `python3 sim/marketplace.py` to generate sim/RESULTS.md._");
   const readme = mdToHtml(read("README.md"));
   const env = {
     db: !!process.env.DATABASE_URL,
     twilio: !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM),
-    nsw: !!(process.env.NSW_LICENCE_API_KEY && process.env.NSW_LICENCE_API_URL),
+    nsw: whitecardConfigured(),
+    push: !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY && process.env.VAPID_SUBJECT),
+    qpay: !!(process.env.QPAY_USERNAME && process.env.QPAY_PASSWORD && process.env.QPAY_INVOICE_CODE),
     cron: !!process.env.CRON_SECRET,
     devOtp: process.env.DEV_SHOW_OTP === "1",
     node: process.env.NODE_ENV ?? "development",

@@ -11,22 +11,20 @@ import { updateCrew, removeFromCrew, blockWorker, logCall } from "@/actions/boss
 import { AWARD_CASUAL_FLOOR, TICKETS, money } from "@/lib/award";
 import { fmtDay, initials } from "@/lib/util";
 import { licenceWords } from "@/lib/verify";
+import { isUuid } from "@/lib/validate";
+import { workerForBoss, licencesForBoss } from "@/lib/bossQueries";
 export const dynamic = "force-dynamic";
 
 export default async function WorkerProfile({ params }: { params: Promise<{ id: string }> }) {
   const u = await requireRole("boss");
   const { id } = await params;
-  const [[w], history, licences] = await Promise.all([
-    sql`SELECT us.id, us.name, us.phone, w.tickets, w.visa_type, w.home_label, w.photo, w.years_exp, w.trades, w.languages, w.about,
-          c.type, c.rate, c.since,
-          CASE WHEN st.past_shifts > 0 THEN ROUND(100.0 * st.showed / st.past_shifts) END AS score, st.completed, st.cancels
-        FROM users us JOIN workers w ON w.user_id = us.id
-        LEFT JOIN crew c ON c.worker_id = us.id AND c.boss_id = ${u.id}
-        LEFT JOIN worker_stats st ON st.worker_id = us.id WHERE us.id = ${id}`,
+  if (!isUuid(id)) notFound();
+  const [w, history, licences] = await Promise.all([
+    workerForBoss(u.id, id),
     sql`SELECT b.id, b.status, b.hours_approved, b.hours_worked, s.day, s.rate, p.name AS site
         FROM bookings b JOIN shifts s ON s.id = b.shift_id JOIN projects p ON p.id = s.project_id
         WHERE b.worker_id = ${id} AND s.boss_id = ${u.id} AND b.status <> 'removed' ORDER BY s.day DESC LIMIT 40`,
-    sql`SELECT kind, number, issued_state, expires_on::text, status, checked_at::text, check_note FROM licences WHERE worker_id = ${id} ORDER BY kind`,
+    licencesForBoss(id),
   ]);
   if (!w) notFound();
   const total = history.filter((h) => h.hours_approved).reduce((a, h) => a + Number(h.hours_approved) * Number(h.rate), 0);
@@ -44,7 +42,7 @@ export default async function WorkerProfile({ params }: { params: Promise<{ id: 
               <div className="text-xl font-extrabold">{w.name}</div>
               <div className="text-steel">{w.score != null ? `Turns up ${w.score}% of the time · ${w.completed} shifts done` : "New — no shifts yet"}{w.cancels > 0 ? ` · pulled out ${w.cancels}×` : ""}</div>
               <div className="text-sm text-steel">
-                {w.years_exp ? `${w.years_exp} years on the tools · ` : ""}{w.home_label || "—"}{w.visa_type ? ` · ${w.visa_type}` : ""}
+                {w.years_exp ? `${w.years_exp} years on the tools · ` : ""}{w.home_label || "—"}
               </div>
             </div>
           </div>
@@ -74,16 +72,16 @@ export default async function WorkerProfile({ params }: { params: Promise<{ id: 
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="font-bold">{TICKETS[l.kind] ?? l.kind}</div>
-                    <div className="text-sm text-steel num">{l.number ? `No. ${l.number}` : "No number"}{l.issued_state ? ` · ${l.issued_state}` : ""}{l.expires_on ? ` · expires ${l.expires_on}` : ""}</div>
+                    <div className="text-sm text-steel num">{[l.issued_state, l.expires_on ? `expires ${l.expires_on}` : null].filter(Boolean).join(" · ") || "State not given"}</div>
                   </div>
                   <span className={`inline-flex items-center rounded-lg px-2.5 py-1 text-sm font-bold shrink-0 ${
                     lw.tone === "green" ? "bg-go text-white" : lw.tone === "red" ? "bg-warn text-white" : "bg-site text-steel"}`}>{lw.label}</span>
                 </div>
-                <div className="text-sm text-steel mt-1">{l.check_note || lw.detail}</div>
+                <div className="text-sm text-steel mt-1">{lw.detail}</div>
               </div>
             );
           })}
-          <p className="text-xs text-steel">A green tick means we checked the number against the state register. Anything else, ask to see the card on site.</p>
+          <p className="text-xs text-steel">A green tick means we checked the card against the state register. Card numbers stay private to the worker — anything else, ask to see the card on site.</p>
         </div>
 
         <form action={updateCrew} className="card space-y-4">

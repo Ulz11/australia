@@ -2,7 +2,7 @@
 import { useState, useTransition } from "react";
 import { saveLicence, removeLicence } from "@/actions/worker";
 import { TICKETS } from "@/lib/award";
-import { licenceWords, STATES, AUTO_STATES, REGULATOR, type LicenceStatus } from "@/lib/verify";
+import { licenceWords, STATES, AUTO_KINDS, REGULATOR, canAutoCheck, type LicenceStatus } from "@/lib/verify";
 import { Field } from "@/components/ui";
 
 export type Lic = {
@@ -19,7 +19,7 @@ export function Licences({ licences, name }: { licences: Lic[]; name: string }) 
     <div className="card space-y-3">
       <div>
         <div className="text-xl font-extrabold">My cards</div>
-        <div className="text-steel">Put the numbers in once. Bosses can see they're real before they book you.</div>
+        <div className="text-steel">Put the numbers in once. Bosses see whether a card checks out — never the numbers.</div>
       </div>
 
       {licences.length === 0 && <div className="say-grey"><div className="font-bold">No cards yet.</div><div className="say-sub">Start with your White Card — nearly every shift needs it.</div></div>}
@@ -63,8 +63,8 @@ export function Licences({ licences, name }: { licences: Lic[]; name: string }) 
       )}
 
       <p className="text-xs text-steel">
-        We check NSW cards against the SafeWork register. Other states we confirm by hand — until then a card shows as
-        "on file, not checked". Always carry the real card on site.
+        We check NSW <b>White Cards</b> against the SafeWork register. Everything else we confirm by hand — until then a card
+        shows as "on file, not checked". Always carry the real card on site.
       </p>
     </div>
   );
@@ -83,7 +83,8 @@ function RemoveBtn({ kind }: { kind: string }) {
 function Form({ kind, existing, name, onDone }: { kind: string; existing?: Lic; name: string; onDone: () => void }) {
   const [state, setState] = useState(existing?.issued_state ?? "NSW");
   const [msg, setMsg] = useState<string | null>(null);
-  const auto = (AUTO_STATES as readonly string[]).includes(state);
+  const auto = canAutoCheck(kind, state);
+  const reg = REGULATOR[state]?.name ?? "the regulator";
   return (
     <form className="mt-3 space-y-3 border-t border-line pt-3"
       action={async (fd) => { const r = await saveLicence(fd); if (r?.error) setMsg(r.error); else { setMsg(r?.note ?? null); if (!r?.error) setTimeout(onDone, 1800); } }}>
@@ -100,10 +101,12 @@ function Form({ kind, existing, name, onDone }: { kind: string; existing?: Lic; 
         </Field>
         <Field label="Expires (if shown)"><input name="expires_on" type="date" defaultValue={existing?.expires_on ?? ""} className="input" /></Field>
       </div>
-      <div className={`say-${auto ? "grey" : "grey"} text-sm`}>
+      <div className="say-grey text-sm">
         {auto
-          ? <>We'll check this straight away against <b>{REGULATOR[state].name}</b>.</>
-          : <>{state} has no instant check yet — we'll confirm it with <b>{REGULATOR[state]?.name ?? "the regulator"}</b> by hand and update the badge.</>}
+          ? <>We'll check this straight away against <b>{reg}</b>.</>
+          : (AUTO_KINDS as readonly string[]).includes(kind)
+            ? <>{state} has no instant check yet — we'll confirm it with <b>{reg}</b> by hand and update the badge.</>
+            : <>This card isn't on an instant register — we'll confirm it with <b>{reg}</b> by hand and update the badge.</>}
       </div>
       {msg && <div className="say-grey text-sm"><b>{msg}</b></div>}
       <button className="btn-primary">Save card</button>

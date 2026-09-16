@@ -55,7 +55,7 @@ export default async function LiveShift({ params }: { params: Promise<{ id: stri
         {s.status === "cancelled" ? <Say tone="red" title="You cancelled this shift" /> :
          open ? (
           s.direct_worker_id
-            ? <Say tone="orange" title="Sent. Waiting for them to say yes." sub="They got a message on their phone." />
+            ? <Say tone="orange" title="Sent. Waiting for them to say yes." sub="We've let them know — it buzzes their phone if they've turned alerts on." />
             : <Say tone="orange" title={s.notified > 0 ? `We've asked ${s.notified} worker${s.notified > 1 ? "s" : ""} nearby` : "Nobody free nearby yet"}
                 sub={urgencyOf({ day: s.day, start_time: String(s.start_time) }).urgent
                   ? `${s.spots - taken} spot${s.spots - taken > 1 ? "s" : ""} still open and the shift starts soon — we're asking three times as many workers, every 5 minutes.`

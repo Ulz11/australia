@@ -11,11 +11,13 @@ import { InviteLink } from "./InviteLink";
 import { StatusPill } from "@/components/StatusPill";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { disagree, workerLogCall } from "@/actions/worker";
-import { logout } from "@/actions/auth";
 import { CallLink } from "@/components/CallLink";
 import { fmtDay } from "@/lib/util";
 import { money } from "@/lib/award";
 import { payForShift } from "@/lib/rules";
+import { logout } from "@/actions/auth";
+import { savedPushFingerprint } from "@/lib/alerts";
+import { AlertsToggle } from "@/components/AlertsToggle";
 export const dynamic = "force-dynamic";
 
 export default async function Me() {
@@ -76,9 +78,11 @@ export default async function Me() {
           </div>
         )}
 
+        {process.env.VAPID_PUBLIC_KEY && <AlertsToggle publicKey={process.env.VAPID_PUBLIC_KEY} savedPush={await savedPushFingerprint(u.id)} role="worker" />}
+
         <InviteLink url={`${base}/join/${w.invite_code}`} code={w.invite_code} mates={mates.map((m) => ({ name: m.name, done: m.completed ?? 0 }))} />
 
-        <Section title="My profile" hint="This is what a boss sees before he books you." />
+        <Section title="My profile" hint="This is what a boss sees before he books you. Your visa and card numbers stay private." />
         <ProfileCard p={{ name: u.name!, photo: w.photo, years_exp: w.years_exp, trades: w.trades ?? [], languages: w.languages ?? [], about: w.about }} />
 
         <Licences licences={licences as never} name={u.name!} />

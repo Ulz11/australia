@@ -18,7 +18,8 @@ export async function GET(req: Request) {
   const [u] = await sql`SELECT id, role FROM users WHERE phone = ${phone} AND role = ${frame}`;
   if (!u) return new Response("no such demo user for that frame", { status: 404 });
   const token = await signSession(u.id);
+  if (!token) return new Response("no such demo user for that frame", { status: 404 });   // the row went away mid-request
   const res = NextResponse.redirect(new URL(`/${frame}`, req.url), 303);
-  res.cookies.set(FRAME_COOKIES[frame], token!, { httpOnly: true, sameSite: "lax", path: `/${frame}`, maxAge: 60 * 60 * 24 });
+  res.cookies.set(FRAME_COOKIES[frame], token, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: `/${frame}`, maxAge: 60 * 60 * 24 });
   return res;
 }

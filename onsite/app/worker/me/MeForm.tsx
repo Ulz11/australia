@@ -17,7 +17,7 @@ export function MeForm({ name, radius, visa, home }: { name: string; radius: num
           <div className="flex items-center justify-between gap-2"><div className="text-lg">{home?.label || "Pinned on the map"}</div><button type="button" className="btn-ghost btn-sm" onClick={() => setEditHome(true)}>Change</button></div>
         )}
       </Field>
-      <Field label="Visa (optional)" hint="Just information for the boss. Nothing is checked.">
+      <Field label="Visa (optional)" hint="Private — bosses don't see this. Nothing is checked.">
         <select name="visa_type" defaultValue={visa ?? ""} className="input">
           <option value="">Prefer not to say</option><option>Citizen / PR</option><option>Working Holiday (417/462)</option><option>Student (500)</option><option>Other with work rights</option>
         </select>
