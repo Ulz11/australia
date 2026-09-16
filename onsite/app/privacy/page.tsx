@@ -3,6 +3,11 @@ import Link from "next/link";
 import { connection } from "next/server";
 import { Brand } from "@/components/Brand";
 import { PRIVACY_VERSION, privacyContact } from "@/lib/privacy";
+import { devShowOtpOn } from "@/lib/flags";
+import { betaInviteOnly } from "@/lib/beta";
+import { smsProvider } from "@/lib/sms";
+
+const TEXT_SERVICE = { clicksend: "ClickSend (Australian text message service)", twilio: "Twilio (US text message service)" } as const;
 
 export const metadata: Metadata = { title: "Privacy — OnSite" };
 
@@ -14,6 +19,9 @@ export const metadata: Metadata = { title: "Privacy — OnSite" };
 export default async function Privacy() {
   await connection();                                   // contact details come from the environment at request time
   const contact = privacyContact();
+  const texts = smsProvider().provider;                 // null until a text service is configured
+  const demo = devShowOtpOn();
+  const closedBeta = betaInviteOnly();
 
   return (
     <main className="max-w-md mx-auto p-6 pb-16 space-y-6 text-lg leading-snug">
@@ -26,7 +34,7 @@ export default async function Privacy() {
       <Section title="What we collect">
         <h3 className="font-bold">From everyone</h3>
         <ul className="list-disc pl-6 space-y-1">
-          <li>Your <b>mobile number</b>. You sign in with it, we text your sign-in codes and shift offers to it, and the people you work with can call you on it.</li>
+          <li>Your <b>mobile number</b>. You sign in with it{texts ? ", we text your sign-in codes and shift offers to it," : ""} and the people you work with can call you on it.</li>
           <li>Your <b>name</b>, and whether you are a <b>boss</b> or a <b>worker</b>.</li>
           <li>When you agreed to this notice, and which version you agreed to.</li>
           <li>Sign-in codes — stored scrambled, never as the code itself — and your <b>internet address</b>, which we use to limit how many codes one connection can ask for. That record is cleared within a day.</li>
@@ -65,7 +73,9 @@ export default async function Privacy() {
 
       <Section title="Services that receive some of it">
         <ul className="list-disc pl-6 space-y-1">
-          <li><b>ClickSend</b> (Australian text message service): your mobile number and the text we send you — a sign-in code or a shift offer.</li>
+          {texts
+            ? <li><b>{TEXT_SERVICE[texts]}</b>: your mobile number and the text we send you — a sign-in code or a shift offer.</li>
+            : <li>No text message service is switched on yet, so nothing is sent to one.</li>}
           <li><b>Apple, Google, Mozilla and Microsoft push services</b> (whichever your browser uses): an encrypted alert for your phone, only if you turned alerts on. They pass it on but cannot read it.</li>
           <li><b>SafeWork NSW</b> (through the NSW Government's API): a NSW White Card number, to check the card is real and current. Nothing else about you is sent.</li>
           <li><b>OpenStreetMap</b>: map pictures and the addresses you type into a search box. Your browser asks OpenStreetMap directly; we do not send them anything.</li>
@@ -83,9 +93,20 @@ export default async function Privacy() {
         <p>Most of it is on your own screens and you can change it there. If you want a copy of what we hold about you, or something you can't change yourself corrected, ask us.</p>
       </Section>
 
-      <Section title="Closed beta">
-        <p>OnSite is in a closed beta: only invited numbers can sign up, and the app is still changing. If what we collect changes, we will update this notice and its version number below.</p>
-      </Section>
+      {demo ? (
+        <Section title="This is a demo">
+          <p>OnSite is a demo and still changing. Sign-in codes show on screen instead of being texted, so <b>anyone who types your mobile number can open your account</b> and see what is in it. Don&apos;t enter anything you wouldn&apos;t want others to see, such as your visa type or card numbers. We may reset the demo, which deletes its accounts and data.</p>
+          <p>If what we collect changes, we will update this notice and its version number below.</p>
+        </Section>
+      ) : closedBeta ? (
+        <Section title="Closed beta">
+          <p>OnSite is in a closed beta: only invited numbers can sign up, and the app is still changing. If what we collect changes, we will update this notice and its version number below.</p>
+        </Section>
+      ) : (
+        <Section title="Changes">
+          <p>If what we collect changes, we will update this notice and its version number below.</p>
+        </Section>
+      )}
 
       {contact && (
         <Section title="Contact">

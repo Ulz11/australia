@@ -37,9 +37,9 @@ every screen).
 
 How the two phones can be two people on one origin: each frame gets its own session cookie scoped to its
 own path (`/boss` or `/worker`). The endpoint that issues them, `/api/console/login`, only exists when
-`DEMO_CONSOLE=1` and only accepts seeded demo phones. **Never set `DEMO_CONSOLE=1` in production** — and on a Vercel
+`DEMO_CONSOLE=1` and only accepts seeded demo phones. **Never set `DEMO_CONSOLE=1` in real production** — on a Vercel
 production deployment (`VERCEL_ENV=production`) both demo switches, `DEMO_CONSOLE` and `DEV_SHOW_OTP`, are ignored
-whatever they say (`lib/flags.ts`, the only place either is read).
+unless that deployment is also declared a demo with `DEMO_SITE=1` (`lib/flags.ts`, the only place either is read).
 
 ## Why it's fast
 
@@ -104,7 +104,7 @@ lib/alerts.ts        notifications → web push (+ SMS for shift offers); public
 lib/otp.ts           login code rules: crypto codes, hashed at rest, 5 wrong guesses an hour
 lib/sms.ts           one text via ClickSend (or Twilio); never logs the number or the message
 lib/beta.ts          closed-beta guest list (BETA_INVITE_ONLY) — scripts/beta-invite.ts manages it
-lib/flags.ts         DEMO_CONSOLE / DEV_SHOW_OTP, forced off on a Vercel production deployment
+lib/flags.ts         DEMO_CONSOLE / DEV_SHOW_OTP, forced off on a Vercel production deployment unless DEMO_SITE=1
 lib/privacy.ts       PRIVACY_VERSION and the /privacy contact (app/privacy/page.tsx)
 lib/bossQueries.ts   what a boss may see about a worker (never visa type or card numbers)
 lib/verify.ts        licence words, states and dates — client-safe, no credentials
@@ -115,7 +115,7 @@ lib/whitecard.ts     SafeWork NSW White Card register over HTTP (address fields 
 
 ## Deploy (Vercel + Neon, Sydney)
 
-Production is **https://onsite-au.vercel.app** — Vercel project `onsite-beta`, root directory `onsite`, deployed automatically from `main`. Data stays in Australia: the database is Neon in **Sydney**, and `vercel.json` pins every function to **Sydney** (`"regions": ["syd1"]`). There is no proxy/middleware (Vercel would run it in every region): each signed-in page, route and action checks the session itself.
+Live at **https://onsite-au.vercel.app** — Vercel project `onsite-beta`, root directory `onsite`, deployed automatically from `main`. **It is currently an open demo, not real production:** there is no text provider yet, so `DEMO_SITE=1` + `DEV_SHOW_OTP=1` show sign-in codes on screen and anyone can sign up (the login screen and `/privacy` say so, including that anyone who types a number can open that account). To go live with texts: set the ClickSend variables, remove `DEMO_SITE` and `DEV_SHOW_OTP`, and decide on `BETA_INVITE_ONLY`. Data stays in Australia: the database is Neon in **Sydney**, and `vercel.json` pins every function to **Sydney** (`"regions": ["syd1"]`). There is no proxy/middleware (Vercel would run it in every region): each signed-in page, route and action checks the session itself.
 
 1. **Database.** A Neon project in AWS Sydney. The app uses the **pooled** connection string; migrations use the **direct** one.
 2. **Migrations** run from your machine, not at build: `DATABASE_URL=<direct URL> npm run db:migrate`. `db/migrate.ts` re-applies every file and each is idempotent, so apply a release's migrations *before* it deploys (this release needs 008: sign-in reads `beta_invites`). **Never run `npm run db:seed` against production** — it is demo data.
@@ -131,12 +131,13 @@ Production is **https://onsite-au.vercel.app** — Vercel project `onsite-beta`,
    | `SMS_PROVIDER` | `clicksend` |
    | `CLICKSEND_USERNAME`, `CLICKSEND_API_KEY` | ClickSend API credentials |
    | `CLICKSEND_FROM` | leave unset: texts go from ClickSend's shared number until a sender is registered |
-   | `BETA_INVITE_ONLY` | `1` |
+   | `BETA_INVITE_ONLY` | `1` for a closed beta; unset for the open demo |
+   | `DEMO_SITE`, `DEV_SHOW_OTP` | `1` and `1` for the open demo (codes on screen); unset both for real production |
    | `PRIVACY_CONTACT_EMAIL`, `BUSINESS_NAME` | the contact line on `/privacy` (both, or the page shows none) |
    | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | web push (`npx web-push generate-vapid-keys`) |
    | `WHITE_CARD_API_KEY`, `WHITE_CARD_API_SECRET` (`WHITE_CARD_AUTH_HEADER` optional) | SafeWork NSW register |
    | `OTP_SENDS_PER_HOUR`, `SMS_ALERTS_PER_HOUR`, `WHITECARD_CHECKS_PER_DAY` | beta limits — see below |
-   | `DEV_SHOW_OTP`, `DEMO_CONSOLE` | leave unset (ignored in production anyway) |
+   | `DEMO_CONSOLE` | leave unset (ignored in production unless `DEMO_SITE=1`) |
 
 4. **Cron.** `vercel.json` calls `GET /api/cron/expand` every 4 minutes (production deployments only): widens matching, reconciles QPay, re-checks queued White Cards, sends unsent alerts, and keeps the Neon compute awake.
 5. **Invites.** With `BETA_INVITE_ONLY=1`, only numbers on the guest list — or that already have an account — get a login code. Manage the list from your machine:

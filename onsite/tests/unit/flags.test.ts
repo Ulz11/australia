@@ -16,11 +16,24 @@ describe("demo switches", () => {
     }
   });
 
-  it("can't be switched on in Vercel production, whatever the variables say", () => {
+  it("can't be switched on in Vercel production by the variables alone", () => {
     vi.stubEnv("VERCEL_ENV", "production");
     vi.stubEnv("DEMO_CONSOLE", "1");
     vi.stubEnv("DEV_SHOW_OTP", "1");
-    expect(demoConsoleOn()).toBe(false);
+    for (const site of ["", "0", "true", "yes"]) {
+      vi.stubEnv("DEMO_SITE", site);
+      expect([demoConsoleOn(), devShowOtpOn()], `DEMO_SITE=${site}`).toEqual([false, false]);
+    }
+  });
+
+  it("work in Vercel production only when the deployment is declared a demo (DEMO_SITE=1)", () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("DEMO_SITE", "1");
+    vi.stubEnv("DEV_SHOW_OTP", "1");
+    vi.stubEnv("DEMO_CONSOLE", "");
+    expect(devShowOtpOn()).toBe(true);
+    expect(demoConsoleOn()).toBe(false);                   // each switch still needs its own variable
+    vi.stubEnv("DEV_SHOW_OTP", "");
     expect(devShowOtpOn()).toBe(false);
   });
 
