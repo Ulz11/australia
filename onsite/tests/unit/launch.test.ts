@@ -14,15 +14,18 @@ describe("the database pool", () => {
     vi.stubEnv("VERCEL", "1");                                  // imported as if on Vercel: no warm-up connections from this test
     const cached = (globalThis as { __sql?: unknown }).__sql;  // a pool another file already built is reused, not rebuilt
     const { poolOptions, sql } = await import("@/lib/db");
-    expect(poolOptions({})).toEqual({ idle_timeout: 0, max_lifetime: 1800 });
+    expect(poolOptions({})).toEqual({ idle_timeout: 0, max_lifetime: 1800, prepare: true });
     const vercel = poolOptions({ VERCEL: "1" });
     expect(vercel.idle_timeout).toBeGreaterThanOrEqual(10);
     expect(vercel.idle_timeout).toBeLessThanOrEqual(20);
     expect(vercel.max_lifetime).toBeGreaterThan(0);
     expect(vercel.max_lifetime).toBeLessThan(1800);
+    // Through Neon's pooler a plan prepared before a migration goes stale ("cached plan must not change result
+    // type", seen live after migration 009), so Vercel never uses named prepared statements.
+    expect(vercel.prepare).toBe(false);
     // and those are what the real pool was built with
     if (!cached)
-      expect({ idle_timeout: sql.options.idle_timeout, max_lifetime: sql.options.max_lifetime }).toEqual(vercel);
+      expect({ idle_timeout: sql.options.idle_timeout, max_lifetime: sql.options.max_lifetime, prepare: sql.options.prepare }).toEqual(vercel);
   });
 });
 

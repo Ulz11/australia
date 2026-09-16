@@ -27,6 +27,11 @@ export function poolOptions(env: Env = process.env) {
   return {
     idle_timeout: vercel ? 15 : 0,             // seconds; 0 = never idle-close
     max_lifetime: vercel ? 60 * 5 : 60 * 30,   // seconds
+    // No named prepared statements through Neon's pooler. PgBouncer keeps prepared plans on its server
+    // connections keyed by query text, so after a migration adds a column, a `SELECT s.*` planned before it
+    // fails with "cached plan must not change result type" — and postgres.js's one retry lands on the same
+    // stale plan. Unnamed statements are re-planned every time: a little planning cost, no stale plans.
+    prepare: !vercel,
   };
 }
 
@@ -43,7 +48,6 @@ export const sql =
     max: 2,                   // queries pipeline on a connection; few connections = statements get prepared once, fast
     ...poolOptions(),
     connect_timeout: 10,
-    prepare: true,
     transform: { undefined: null },
     types: { date: { to: 1082, from: [1082], serialize: (x: string) => x, parse: (x: string) => x } },
     connection: { TimeZone: process.env.APP_TZ || "Australia/Sydney" },

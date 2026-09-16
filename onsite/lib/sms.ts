@@ -7,11 +7,14 @@
  *  - `{ sent: false }` is a failure worth retrying, and callers hand back any budget they charged for it.
  *  - Never throws, never waits more than 8 s, and never writes the number or the message to a log
  *    (the message can be a login code). The development stub is the one exception, on purpose.
- *  - In production with no usable provider it refuses, and says so in the log.
+ *  - In production with no usable provider it refuses, and says so in the log — except on a deployment declared a
+ *    demo (DEMO_SITE=1, lib/flags.ts), where having no texts is the plan and a log line per sign-in is only noise.
  *
  * Which provider: SMS_PROVIDER (`clicksend` | `twilio`) when set; otherwise whichever one has credentials,
  * ClickSend first (Australian gateway, the one the beta uses).
  */
+import { demoSite } from "./flags";
+
 export type SmsResult = { sent: boolean; stub?: boolean };
 export type SmsProvider = "clicksend" | "twilio";
 
@@ -38,7 +41,7 @@ export async function sendSms(to: string, body: string): Promise<SmsResult> {
   const p = smsProvider();
   if (!p.provider) {
     if (process.env.NODE_ENV === "production") {
-      console.error(`[sms] no provider configured — nothing sent (${p.why})`);   // never log the message: it can be a login code
+      if (!demoSite()) console.error(`[sms] no provider configured — nothing sent (${p.why})`);   // never log the message: it can be a login code
       return { sent: false };                                                   // a failure, so alerts retry instead of vanishing
     }
     console.log(`[sms:stub] to=${to} :: ${body}`);
