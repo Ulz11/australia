@@ -106,11 +106,13 @@ UPDATE bosses SET period_ends_at = period_started_at + interval '1 month' WHERE 
 
 -- Pairs that already worked together through a shift OnSite posted to the pool become introductions,
 -- already billed and with no invoice line: grandfathered, so nobody is charged for their own history.
--- The billed stamp is that pair's first approval of more than 0 hours, whichever shift it was on.
+-- That holds even for a pair whose first shift was never approved: they met before there was a fee,
+-- so their next approved shift is free too. The billed stamp is the pair's first approval of more
+-- than 0 hours if there was one, otherwise the moment they were introduced.
 INSERT INTO introductions (boss_id, worker_id, introduced_at, via, first_booking_id, billed_at, billed_booking_id)
 SELECT DISTINCT ON (s.boss_id, b.worker_id)
   s.boss_id, b.worker_id, b.created_at, 'match', b.id,
-  fa.approved_at, fa.id
+  COALESCE(fa.approved_at, b.created_at), COALESCE(fa.id, b.id)
 FROM bookings b
 JOIN shifts s ON s.id = b.shift_id
 LEFT JOIN LATERAL (
