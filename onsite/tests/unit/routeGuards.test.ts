@@ -90,6 +90,30 @@ describe("the passkey actions guard themselves", () => {
 });
 
 /**
+ * Me → "Where you're signed in" ends a session (lib/session.ts, migration 015). Both actions live in
+ * actions/auth.ts, outside the signed-in folders and outside the role-checked files above, and both act on the
+ * caller's own sessions — so each reads the user first and stops when there is none.
+ */
+describe("the sign-out-a-phone actions guard themselves", () => {
+  const src = fs.readFileSync("actions/auth.ts", "utf8");
+  const bodies = Object.fromEntries(src.split(/^export async function /m).slice(1)
+    .map((b) => [b.slice(0, b.indexOf("(")), b.slice(b.indexOf("{\n") + 2).trimStart().split("\n").map((l) => l.trim())]));
+
+  it("both are there, read the signed-in user first, and stop when there is none", () => {
+    for (const name of ["signOutSession", "signOutOtherSessions"]) {
+      expect(bodies[name], name).toBeTruthy();
+      expect(bodies[name][0], name).toBe("const u = await getUser();");
+      expect(bodies[name][1], name).toMatch(/^if \(!u\b/);
+    }
+  });
+
+  it("both boss and worker settings show the list, so neither side is left without a way to sign a phone out", () => {
+    for (const f of ["app/boss/me/settings/page.tsx", "app/worker/me/settings/page.tsx"])
+      expect(fs.readFileSync(f, "utf8"), f).toMatch(/<SessionsSection /);
+  });
+});
+
+/**
  * Staying signed in adds two routes outside the signed-in folders (lib/session.ts). Nothing in front of them
  * checks anything either, so each must verify the token — and that its user still exists — before it does anything.
  */

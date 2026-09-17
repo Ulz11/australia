@@ -18,7 +18,7 @@ export async function POST(req: Request) {
   const r = await verifyOtp(phone, code, await clientIp());
   if (!r.ok) return fail(req, r.step === "phone" ? 410 : 401, r.error);
 
-  const token = await signSession(r.userId);
+  const token = await signSession(r.userId, { via: "mobile", label: "The OnSite app" });
   if (!token) return fail(req, 500, "Something went wrong. Try again.");
 
   // The invite is only meaningful for someone who hasn't finished onboarding yet.

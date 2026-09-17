@@ -4,8 +4,10 @@ import { Header, Page } from "@/components/Header";
 import { Field, Say } from "@/components/ui";
 import { AlertsToggle } from "@/components/AlertsToggle";
 import { PasskeysSection } from "@/components/PasskeysSection";
+import { SessionsSection } from "@/components/SessionsSection";
 import { savedPushFingerprint } from "@/lib/alerts";
 import { listPasskeys } from "@/lib/passkeys";
+import { listSessions } from "@/lib/session";
 import { logout } from "@/actions/auth";
 import { saveCompany } from "@/actions/boss";
 export const dynamic = "force-dynamic";
@@ -19,9 +21,10 @@ const WRONG = {
 export default async function BossSettings({ searchParams }: { searchParams: Promise<{ err?: string; saved?: string }> }) {
   const u = await requireRole("boss");
   const { err, saved } = await searchParams;
-  const [[b], passkeys, savedPush] = await Promise.all([
+  const [[b], passkeys, sessions, savedPush] = await Promise.all([
     sql`SELECT company, abn FROM bosses WHERE user_id = ${u.id}`,
     listPasskeys(u.id),
+    listSessions(u.id),
     savedPushFingerprint(u.id),
   ]);
   const wrong = err === "company" || err === "abn" ? WRONG[err] : null;
@@ -45,6 +48,7 @@ export default async function BossSettings({ searchParams }: { searchParams: Pro
 
         {process.env.VAPID_PUBLIC_KEY && <AlertsToggle publicKey={process.env.VAPID_PUBLIC_KEY} savedPush={savedPush} role="boss" />}
         <PasskeysSection userId={u.id} passkeys={passkeys} />
+        <SessionsSection sessions={sessions} currentSid={u.sid} />
 
         <div className="card space-y-2">
           <div className="text-lg font-bold">The deal, in plain words</div>

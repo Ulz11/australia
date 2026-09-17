@@ -4,6 +4,7 @@
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { RENEW_AFTER_SECONDS, SESSION_COOKIE, SESSION_DAYS, bearerToken, sessionCookie } from "@/lib/session";
+import { ago } from "@/lib/util";
 import { REFRESH_EVERY_MS, refreshDue } from "@/components/SessionRefresh";
 
 afterEach(() => { vi.unstubAllEnvs(); });
@@ -36,6 +37,22 @@ describe("the mobile bearer header", () => {
     expect(bearerToken("Basic abc")).toBeNull();
     expect(bearerToken(null)).toBeNull();
     expect(bearerToken(undefined)).toBeNull();
+  });
+});
+
+describe("how long ago a phone was last used", () => {
+  it("reads as a person would say it, and never as a clock", () => {
+    const now = new Date("2026-09-18T09:00:00Z");
+    const back = (ms: number) => new Date(now.getTime() - ms);
+    expect(ago(back(0), now)).toBe("just now");
+    expect(ago(back(90_000), now)).toBe("just now");
+    expect(ago(back(20 * 60_000), now)).toBe("20 min ago");
+    expect(ago(back(2 * 60 * 60_000), now)).toBe("2 h ago");
+    expect(ago(back(23 * 60 * 60_000), now)).toBe("23 h ago");
+    expect(ago(back(30 * 60 * 60_000), now)).toBe("yesterday");
+    expect(ago(back(9 * DAY * 1000), now)).toBe("9 days ago");
+    expect(ago(back(70 * DAY * 1000), now)).toBe("2 months ago");
+    expect(ago(back(800 * DAY * 1000), now)).toBe("over a year ago");
   });
 });
 

@@ -5,7 +5,7 @@
  * version someone agreed to (migration 008), so anyone who agreed to an older one can be asked again.
  * It is the date of the change, with ".2", ".3"… for further changes on the same day.
  */
-export const PRIVACY_VERSION = "2026-09-17.3";   // ".3": the date a boss opened a worker's profile, and what a boss sees of their record
+export const PRIVACY_VERSION = "2026-09-18";     // the phones you are signed in on, listed on your own Settings screen
 
 /**
  * Who to contact about privacy. Read from the environment when the page is requested (never baked in at

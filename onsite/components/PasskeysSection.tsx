@@ -31,6 +31,7 @@ export function PasskeysSection({ userId, passkeys }: { userId: string; passkeys
                   title={`Remove Face ID sign-in for this ${p.label}?`}
                   details={[
                     `That ${p.label} will need a text code to sign in to OnSite.`,
+                    "Signs out anywhere that used this Face ID to sign in.",
                     "You can turn it on again from Me on that phone.",
                   ]}
                   confirmLabel="Yes, remove" cancelLabel="Keep it">Remove</ConfirmButton>

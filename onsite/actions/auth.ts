@@ -2,9 +2,10 @@
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { sql } from "@/lib/db";
-import { createSession, destroySession, getUser, signedInPath, FRAME_COOKIES } from "@/lib/session";
+import { createSession, destroySession, getUser, signedInPath, FRAME_COOKIES, SESSION_COOKIE } from "@/lib/session";
+import { revalidatePath } from "@/lib/nav";
 import { normalisePhone, sendSms } from "@/lib/sms";
-import { isLatLng } from "@/lib/validate";
+import { isLatLng, isUuid } from "@/lib/validate";
 import { pinFor } from "@/lib/place";
 import { OTP, hashCode, inviteCode, newCode, phoneAllowed } from "@/lib/otp";
 import { clientIp, hit, refund } from "@/lib/ratelimit";
@@ -110,7 +111,7 @@ export async function verifyCode(prev: AuthState, form: FormData, opts?: { ip?: 
   const ip = process.env.VITEST && opts && "ip" in opts ? opts.ip : await clientIp();   // tests only, as above
   const r = await verifyOtp(phone, code, ip ?? null);
   if (!r.ok) return r.step === "phone" ? { step: "phone", error: r.error } : { ...prev, error: r.error };
-  await createSession(r.userId);
+  await createSession(r.userId, { via: "code" });
   await offerPasskeyNextScreen();                           // "Sign in with Face ID next time?" on the next boss or worker screen
   redirect(signedInPath(r, invite));                        // actions/passkeys.ts signs in through the same two lines
 }
@@ -126,6 +127,32 @@ export async function logout() {
   for (const [name, path] of [[FRAME_COOKIES.boss, "/boss"], [FRAME_COOKIES.worker, "/worker"]]) jar.delete({ name, path });
   await destroySession();
   redirect("/login");
+}
+
+/**
+ * Me → "Where you're signed in" → Sign out. Only ever one of the caller's own sessions; ending the one they
+ * are holding sends them to the login screen, because it just stopped working.
+ */
+export async function signOutSession(id: string) {
+  const u = await getUser();
+  if (!u || !isUuid(id)) return;
+  await sql`UPDATE sessions SET revoked_at = now() WHERE id = ${id} AND user_id = ${u.id} AND revoked_at IS NULL`;
+  if (id === u.sid) {
+    (await cookies()).delete(SESSION_COOKIE);
+    redirect("/login");
+  }
+  revalidatePath("/boss/me/settings");
+  revalidatePath("/worker/me/settings");
+}
+
+/** The one tap for a lost or lent phone: every other sign-in ends, this one stays. */
+export async function signOutOtherSessions() {
+  const u = await getUser();
+  if (!u) return;
+  await sql`UPDATE sessions SET revoked_at = now()
+            WHERE user_id = ${u.id} AND revoked_at IS NULL AND id IS DISTINCT FROM ${isUuid(u.sid) ? u.sid : null}::uuid`;
+  revalidatePath("/boss/me/settings");
+  revalidatePath("/worker/me/settings");
 }
 
 export async function completeOnboarding(form: FormData) {

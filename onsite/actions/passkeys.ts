@@ -47,7 +47,7 @@ export async function passkeySignIn(response: unknown, invite?: string): Promise
   if (ip && !(await hit(`passkey-verify:ip:${ip}`, PASSKEY_LIMITS.loginVerifiesPerIp, 3600))) return refuse("busy");
   const r = await verifyLogin(rp, response);
   if (!r.ok) return refuse(r.reason);
-  await createSession(r.userId);
+  await createSession(r.userId, { via: "passkey", passkeyId: r.passkeyId });
   return { ok: true, to: signedInPath(r, typeof invite === "string" ? invite.trim().slice(0, 20) : "") };
 }
 

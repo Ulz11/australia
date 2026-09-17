@@ -80,17 +80,8 @@ function safeName(u: { name: string | null; phone: string }): string | null {
 export const userHandle = (userId: string) => new Uint8Array(Buffer.from(userId.replace(/-/g, ""), "hex"));
 export const userHandleB64 = (userId: string) => Buffer.from(userHandle(userId)).toString("base64url");
 
-/** What Me calls the device, from its user agent. An iPad asks for the desktop site, so its touch screen gives it away. */
-export function deviceLabel(ua: string, hints: { touch?: boolean } = {}): string {
-  if (/iPhone|iPod/.test(ua)) return "iPhone";
-  if (/iPad/.test(ua) || (/Macintosh/.test(ua) && hints.touch)) return "iPad";
-  if (/Android/.test(ua)) return /Mobile/.test(ua) ? "Android phone" : "Android tablet";
-  if (/CrOS/.test(ua)) return "Chromebook";
-  if (/Macintosh|Mac OS X/.test(ua)) return "Mac";
-  if (/Windows/.test(ua)) return "Windows PC";
-  if (/Linux/.test(ua)) return "Linux computer";
-  return "Phone or computer";
-}
+/** What Me calls the device, from its user agent (lib/device.ts — sessions name a phone the same way). */
+export { deviceLabel } from "./device";
 
 /**
  * After a code sign-in (and onboarding), the next boss or worker screen asks once: "Sign in with Face ID next
@@ -215,7 +206,8 @@ export async function authenticationOptions(rp: RelyingParty): Promise<PublicKey
 }
 
 export type LoginResult =
-  | { ok: true; userId: string; role: string | null; name: string | null }
+  /** `passkeyId` goes on the session row, so removing this passkey signs that phone out (lib/session.ts). */
+  | { ok: true; userId: string; passkeyId: string; role: string | null; name: string | null }
   | { ok: false; reason: Extract<PasskeyReason, "expired" | "unknown" | "failed"> };
 
 export async function verifyLogin(rp: RelyingParty, response: unknown): Promise<LoginResult> {
@@ -260,5 +252,5 @@ export async function verifyLogin(rp: RelyingParty, response: unknown): Promise<
     const [still] = await sql`SELECT 1 FROM passkeys WHERE id = ${p.id}`;
     return { ok: false, reason: still ? "failed" : "unknown" };
   }
-  return { ok: true, userId: u.id, role: u.role, name: u.name };
+  return { ok: true, userId: u.id, passkeyId: p.id, role: u.role, name: u.name };
 }

@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { cache } from "react";
 import { sql } from "./db";
 import { demoConsoleOn } from "./flags";
+import { deviceLabel } from "./device";
 import { isUuid } from "./validate";
 
 export const SESSION_COOKIE = "onsite_session";
@@ -13,6 +14,12 @@ export const SESSION_COOKIE = "onsite_session";
  * — Chrome caps a cookie at 400 days — and slides: POST /api/session/refresh (called from the boss and worker
  * layouts, at most every 6 h per browser) re-issues a cookie more than a day old, and the app swaps its token
  * at POST /api/v1/auth/refresh. Someone who opens OnSite at least once a year never needs another code.
+ *
+ * A sign-in is also a row in `sessions` (migration 015), and the token carries its id as `sid`. Every read of
+ * "who is this" joins that row to the user, so three things are true that weren't before: a deleted account's
+ * cookie opens nothing, signing out ends the session everywhere rather than dropping one cookie, and removing
+ * a passkey signs out the phone that used it (the row's passkey_id cascades). A token with no sid — every
+ * token issued before this — is not a session and is refused: everyone signs in once more.
  */
 export const SESSION_DAYS = 365;
 const SESSION_TTL = `${SESSION_DAYS}d`;
@@ -40,44 +47,92 @@ const secret = () => {
   return new TextEncoder().encode(s || "dev-secret-change-me");
 };
 
-export type SessionUser = { id: string; phone: string; name: string | null; role: "boss" | "worker" | null; lang: string };
+/** How someone got in. 'mobile' is the app's bearer token; the other two are this browser. */
+export type SessionVia = "code" | "passkey" | "mobile";
+export type SessionUser = { id: string; phone: string; name: string | null; role: "boss" | "worker" | null; lang: string; sid: string };
+
+/** What a new session row says about itself. The label comes off the user agent when one is there to read. */
+export type NewSession = { via?: SessionVia; passkeyId?: string | null; label?: string; ttl?: string };
+
+/** "iPhone", "Android phone" — the same words Me uses for a passkey. Outside a request there is no agent to read. */
+async function labelFromRequest(): Promise<string> {
+  try {
+    return deviceLabel((await headers()).get("user-agent") ?? "");
+  } catch {
+    return deviceLabel("");
+  }
+}
 
 /**
- * The signed cookie carries the whole user (id, role, name), so reading "who is this"
- * costs zero database trips. Re-issue it whenever role or name changes (createSession again).
+ * Open a session and sign a token for it: one row in `sessions`, and the JWT that carries its id. The user's
+ * name and role ride along so a screen can read them without a second query, but the session id is what makes
+ * the token worth anything.
  */
-export async function signSession(userId: string, ttl = SESSION_TTL): Promise<string | null> {
-  const [u] = await sql<SessionUser[]>`SELECT id, phone, name, role, lang FROM users WHERE id = ${userId}`;
-  if (!u) return null;
-  return sign(u, ttl);
+export async function signSession(userId: string, opts: NewSession = {}): Promise<string | null> {
+  const [s] = await sql<(SessionUser & { sid: string })[]>`
+    WITH s AS (
+      INSERT INTO sessions (user_id, passkey_id, via, label)
+      SELECT u.id, ${opts.passkeyId ?? null}, ${opts.via ?? "code"}, ${(opts.label ?? (await labelFromRequest())).slice(0, 40)}
+      FROM users u WHERE u.id = ${userId}
+      RETURNING id AS sid, user_id
+    ), seen AS (
+      UPDATE users SET last_seen_at = now() WHERE id = (SELECT user_id FROM s)
+    )
+    SELECT u.id, u.phone, u.name, u.role, u.lang, s.sid FROM s JOIN users u ON u.id = s.user_id`;
+  if (!s) return null;
+  return sign(s, opts.ttl ?? SESSION_TTL);
 }
 
 const sign = (u: SessionUser, ttl = SESSION_TTL) =>
-  new SignJWT({ sub: u.id, phone: u.phone, name: u.name, role: u.role, lang: u.lang })
+  new SignJWT({ sub: u.id, sid: u.sid, phone: u.phone, name: u.name, role: u.role, lang: u.lang })
     .setProtectedHeader({ alg: "HS256" }).setIssuedAt().setExpirationTime(ttl).sign(secret());
 
 /** When a token we signed stops working. Read, not verified — only call it on a token you just signed or checked. */
 export const tokenExpiresAt = (token: string) => new Date((decodeJwt(token).exp ?? 0) * 1000);
 
-/**
- * The sliding part. Checks the signature and expiry, then that the user still exists (one query). A token at
- * least `renewAfterSeconds` old is re-signed from the current row — fresh name and role, a fresh year; a younger
- * one comes back as it was. Null for a missing, forged or expired token, or a deleted user.
- */
-export async function renewSession(token: string | null | undefined, renewAfterSeconds = RENEW_AFTER_SECONDS): Promise<{ token: string; renewed: boolean } | null> {
+/** The live session behind a session id: the person, or null when the row is gone, revoked, or their account is. */
+const sessionUser = async (sid: string): Promise<SessionUser | null> => {
+  const [u] = await sql<SessionUser[]>`
+    SELECT u.id, u.phone, u.name, u.role, u.lang, s.id AS sid
+    FROM sessions s JOIN users u ON u.id = s.user_id
+    WHERE s.id = ${sid} AND s.revoked_at IS NULL`;
+  return u ?? null;
+};
+
+/** The session id a token carries, once its signature and expiry check out. Null for anything else. */
+async function liveSid(token: string | null | undefined): Promise<{ sid: string; sub: string; iat?: number } | null> {
   if (!token) return null;
-  let sub: string | undefined, iat: number | undefined;
   try {
-    ({ payload: { sub, iat } } = await jwtVerify(token, secret()));
+    const { payload } = await jwtVerify(token, secret());
+    const sid = payload.sid, sub = payload.sub;
+    if (!isUuid(sid) || !isUuid(sub)) return null;           // no sid: issued before sessions existed
+    return { sid, sub, iat: payload.iat };
   } catch {
     return null;
   }
-  if (!isUuid(sub)) return null;
-  const [u] = await sql<SessionUser[]>`SELECT id, phone, name, role, lang FROM users WHERE id = ${sub}`;
-  if (!u) return null;
-  if (iat !== undefined && Date.now() / 1000 - iat < renewAfterSeconds) return { token, renewed: false };
+}
+
+/**
+ * The sliding part. Checks the signature and expiry, then that the session is still live and its user still
+ * exists (one query). A token at least `renewAfterSeconds` old is re-signed from the current row — fresh name
+ * and role, a fresh year, the same session id; a younger one comes back as it was. Either way the session and
+ * the person are marked as seen just now. Null for a missing, forged, expired or sid-less token, a revoked
+ * session, or a deleted user.
+ */
+export async function renewSession(token: string | null | undefined, renewAfterSeconds = RENEW_AFTER_SECONDS): Promise<{ token: string; renewed: boolean } | null> {
+  const t = await liveSid(token);
+  if (!t) return null;
+  const u = await sessionUser(t.sid);
+  if (!u || u.id !== t.sub) return null;
+  await touch(t.sid);
+  if (t.iat !== undefined && Date.now() / 1000 - t.iat < renewAfterSeconds) return { token: token!, renewed: false };
   return { token: await sign(u), renewed: true };
 }
+
+/** This session and this person were here just now. One statement; nothing waits on it being exact. */
+const touch = (sid: string) => sql`
+  WITH s AS (UPDATE sessions SET last_seen_at = now() WHERE id = ${sid} RETURNING user_id)
+  UPDATE users SET last_seen_at = now() WHERE id = (SELECT user_id FROM s)`;
 
 /** The token in an `Authorization: Bearer …` header, or null. */
 export const bearerToken = (authorization: string | null | undefined) =>
@@ -91,23 +146,43 @@ export const signedInPath = (u: { role: string | null; name: string | null }, in
   !u.role || !u.name ? (invite ? `/onboarding?invite=${encodeURIComponent(invite)}` : "/onboarding")
     : u.role === "boss" ? "/boss" : "/worker";
 
-export async function createSession(userId: string) {
+/**
+ * Sign this browser in. A fresh sign-in opens a session; a re-issue after a name or role change (onboarding,
+ * Me) keeps the session this browser already holds, so "Where you're signed in" lists phones, not edits.
+ */
+export async function createSession(userId: string, opts: NewSession = {}) {
   if (process.env.TEST_USER_ID && process.env.NODE_ENV !== "production") return; // scripts/tests: no cookie jar
-  const token = await signSession(userId);
+  const jar = await cookies();
+  const held = await liveSid(jar.get(SESSION_COOKIE)?.value);
+  const current = held && held.sub === userId ? await sessionUser(held.sid) : null;
+  if (current) {
+    await touch(current.sid);
+    jar.set(sessionCookie(await sign(current)));
+    return;
+  }
+  const token = await signSession(userId, opts);
   if (!token) return;
-  (await cookies()).set(sessionCookie(token));
+  jar.set(sessionCookie(token));
 }
 
-export async function destroySession() { (await cookies()).delete(SESSION_COOKIE); }
+/** Sign out: the row is revoked (every copy of that token dies with it), then the cookie goes. */
+export async function destroySession() {
+  const jar = await cookies();
+  const held = await liveSid(jar.get(SESSION_COOKIE)?.value);
+  if (held) await revokeSessionRow(held.sid);
+  jar.delete(SESSION_COOKIE);
+}
 
-/** Verify a JWT and unpack the user it carries. No database trip. */
+/** End one session, whoever is asking — the caller has already checked it is theirs. */
+export const revokeSessionRow = (sid: string) =>
+  sql`UPDATE sessions SET revoked_at = now() WHERE id = ${sid} AND revoked_at IS NULL`.then(() => undefined);
+
+/** Verify a JWT and look up the session it names. Null for a token with no live session behind it. */
 export async function userFromToken(token: string | undefined | null): Promise<SessionUser | null> {
-  if (!token) return null;
-  try {
-    const { payload } = await jwtVerify(token, secret());
-    if (!payload.sub) return null;
-    return { id: payload.sub, phone: String(payload.phone ?? ""), name: (payload.name as string) ?? null, role: (payload.role as SessionUser["role"]) ?? null, lang: String(payload.lang ?? "en") };
-  } catch { return null; }
+  const t = await liveSid(token);
+  if (!t) return null;
+  const u = await sessionUser(t.sid);
+  return u && u.id === t.sub ? u : null;
 }
 
 /**
@@ -119,22 +194,16 @@ export const getApiUser = cache(async (): Promise<SessionUser | null> => {
   return (await userFromToken(bearerToken((await headers()).get("authorization")))) ?? (await getUser());
 });
 
-/** One verification per request (React cache), no DB. */
+/** One lookup per request (React cache): the token's signature, then the session row behind it. */
 export const getUser = cache(async (): Promise<SessionUser | null> => {
   if (process.env.TEST_USER_ID && process.env.NODE_ENV !== "production") {
-    const rows = await sql<SessionUser[]>`SELECT id, phone, name, role, lang FROM users WHERE id = ${process.env.TEST_USER_ID}`;
+    const rows = await sql<SessionUser[]>`SELECT id, phone, name, role, lang, '' AS sid FROM users WHERE id = ${process.env.TEST_USER_ID}`;
     return rows[0] ?? null;
   }
   const jar = await cookies();
   // A control-room frame cookie only reaches its own path, so if one is present it wins.
   const frame = demoConsoleOn() ? jar.get(FRAME_COOKIES.boss)?.value ?? jar.get(FRAME_COOKIES.worker)?.value : undefined;
-  const token = frame ?? jar.get(SESSION_COOKIE)?.value;
-  if (!token) return null;
-  try {
-    const { payload } = await jwtVerify(token, secret());
-    if (!payload.sub) return null;
-    return { id: payload.sub, phone: String(payload.phone ?? ""), name: (payload.name as string) ?? null, role: (payload.role as SessionUser["role"]) ?? null, lang: String(payload.lang ?? "en") };
-  } catch { return null; }
+  return userFromToken(frame ?? jar.get(SESSION_COOKIE)?.value);
 });
 
 export async function requireRole(role: "boss" | "worker"): Promise<SessionUser> {
@@ -144,3 +213,10 @@ export async function requireRole(role: "boss" | "worker"): Promise<SessionUser>
   if (u.role !== role) redirect(u.role === "boss" ? "/boss" : "/worker");
   return u;
 }
+
+export type SessionRow = { id: string; label: string; via: SessionVia; created_at: Date; last_seen_at: Date };
+
+/** Me → "Where you're signed in": this person's live sessions, the one used most recently first. */
+export const listSessions = (userId: string) => sql<SessionRow[]>`
+  SELECT id, label, via, created_at, last_seen_at FROM sessions
+  WHERE user_id = ${userId} AND revoked_at IS NULL ORDER BY last_seen_at DESC`;
