@@ -4,6 +4,8 @@ import { sql } from "@/lib/db";
 import { completeOnboarding } from "@/actions/auth";
 import { Brand } from "@/components/Brand";
 import { RoleForm } from "./RoleForm";
+import { LangProvider } from "@/components/Lang";
+import { dictionary, getLang, getT } from "@/lib/i18n/server";
 
 export default async function Onboarding({ searchParams }: { searchParams: Promise<{ invite?: string; err?: string }> }) {
   const u = await getUser();
@@ -19,13 +21,18 @@ export default async function Onboarding({ searchParams }: { searchParams: Promi
     ORDER BY ci.invited_at DESC LIMIT 1`;
   const [byCode] = code ? await sql`SELECT 1 FROM bosses WHERE invite_code = ${code}` : [];
   const invited = !!inv || !!byCode;
+  // Whatever language was chosen on the login screen carries straight through to here.
+  const [lang, t] = await Promise.all([getLang(), getT()]);
+  const dict = await dictionary(lang);
   return (
-    <main className="max-w-md mx-auto p-6 pb-16">
-      <Brand sub="Two questions and you are in." />
-      <form action={completeOnboarding} className="mt-6 space-y-5">
-        <RoleForm invite={invite} defaultRole={invite || invited ? "worker" : undefined} defaultName={inv?.name ?? undefined}
-          error={err === "privacy" ? "Tick the box to agree to the privacy notice and the rules — we can't set up your account without it." : undefined} />
-      </form>
-    </main>
+    <LangProvider lang={lang} dict={dict}>
+      <main className="max-w-md mx-auto p-6 pb-16">
+        <Brand sub={t("Two questions and you are in.")} />
+        <form action={completeOnboarding} className="mt-6 space-y-5">
+          <RoleForm invite={invite} defaultRole={invite || invited ? "worker" : undefined} defaultName={inv?.name ?? undefined}
+            error={err === "privacy" ? t("Tick the box to agree to the privacy notice and the rules — we can't set up your account without it.") : undefined} />
+        </form>
+      </main>
+    </LangProvider>
   );
 }

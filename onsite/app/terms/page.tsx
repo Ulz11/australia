@@ -7,6 +7,7 @@ import { demoSite } from "@/lib/flags";
 import { privacyContact } from "@/lib/privacy";
 import { TERMS_VERSION } from "@/lib/terms";
 import { gstRegistered, matchFeeCents, priceWords, subscriptionCents, trialDays } from "@/lib/subscription";
+import { getLang, getT } from "@/lib/i18n/server";
 
 export const metadata: Metadata = { title: "The rules — OnSite" };
 
@@ -24,10 +25,15 @@ export default async function Terms() {
   const days = trialDays();
   const gst = gstRegistered();
   const demo = demoSite();
+  // The rules themselves stay English — they have to be exact — but they say so in the reader's own language first.
+  const [lang, t] = await Promise.all([getLang(), getT()]);
 
   return (
     <main className="max-w-md mx-auto p-6 pb-16 space-y-6 text-lg leading-snug">
       <Brand sub="The rules" />
+      {lang !== "en" && (
+        <p className="rounded-2xl bg-site px-4 py-3 text-base" lang={lang}>{t("This page is in English. Ask someone you trust to read it with you.")}</p>
+      )}
       <p>
         These are the rules for using OnSite. They are short because the app is: a boss posts a shift, a worker
         takes it, both keep the same record. You agree to them when you set up your account.

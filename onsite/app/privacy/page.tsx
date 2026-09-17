@@ -6,6 +6,7 @@ import { PRIVACY_VERSION, privacyContact } from "@/lib/privacy";
 import { devShowOtpOn } from "@/lib/flags";
 import { betaInviteOnly } from "@/lib/beta";
 import { smsProvider } from "@/lib/sms";
+import { getLang, getT } from "@/lib/i18n/server";
 
 const TEXT_SERVICE = { clicksend: "ClickSend (Australian text message service)", twilio: "Twilio (US text message service)" } as const;
 
@@ -22,10 +23,15 @@ export default async function Privacy() {
   const texts = smsProvider().provider;                 // null until a text service is configured
   const demo = devShowOtpOn();
   const closedBeta = betaInviteOnly();
+  // The notice itself stays English — it has to be exact — but it says so in the reader's own language first.
+  const [lang, t] = await Promise.all([getLang(), getT()]);
 
   return (
     <main className="max-w-md mx-auto p-6 pb-16 space-y-6 text-lg leading-snug">
       <Brand sub="Privacy notice" />
+      {lang !== "en" && (
+        <p className="rounded-2xl bg-site px-4 py-3 text-base" lang={lang}>{t("This page is in English. Ask someone you trust to read it with you.")}</p>
+      )}
       <p>
         What {contact ? `${contact.business} collects through OnSite` : "OnSite collects"} when you use it, who can see it,
         where it is kept and who else receives some of it. It covers the app at this address and nothing else.
@@ -36,6 +42,7 @@ export default async function Privacy() {
         <ul className="list-disc pl-6 space-y-1">
           <li>Your <b>mobile number</b>. You sign in with it{texts ? ", we text your sign-in codes and shift offers to it," : ""} and the people you work with can call you on it.</li>
           <li>Your <b>name</b>, and whether you are a <b>boss</b> or a <b>worker</b>.</li>
+          <li>The <b>language</b> you chose for the app, kept with your account and in a cookie on the phone you chose it on.</li>
           <li>When you agreed to this notice, and which version you agreed to.</li>
           <li>Sign-in codes — stored scrambled, never as the code itself — and your <b>internet address</b>, which we use to limit how many codes or sign-in tries one connection can ask for. That record is cleared within a day.</li>
           <li>Each <b>phone you are signed in on</b>: what sort of device it is (like &ldquo;iPhone&rdquo;), how you signed in on it, when you signed in and when it was last used. It is on your own Settings screen so you can sign any of them out.</li>

@@ -6,6 +6,8 @@ import type { Pin } from "@/components/MapPicker";
 import { ShiftCard, type S } from "../Calendar";
 import { takeShift } from "@/actions/worker";
 import { fmtDay, todayIso } from "@/lib/util";
+import { plural } from "@/lib/i18n";
+import { useT, useLocale } from "@/components/Lang";
 
 type XS = S & { project_id: string; avail: string };
 
@@ -17,6 +19,8 @@ export function Explore({ home, radiusKm, sites, shifts, q }: { home: [number, n
   const [err, setErr] = useState<string | null>(null);
   const router = useRouter();
   const today = todayIso();
+  const t = useT();
+  const locale = useLocale();
   const counts = useMemo(() => { const m: Record<string, number> = {}; for (const s of shifts) if (!s.mine) m[s.project_id] = (m[s.project_id] ?? 0) + 1; return m; }, [shifts]);
   // A site is orange only where a shift on it was offered to this worker; open work nobody asked them about is ink.
   const offered = useMemo(() => { const m: Record<string, number> = {}; for (const s of shifts) if (!s.mine && s.notified) m[s.project_id] = (m[s.project_id] ?? 0) + 1; return m; }, [shifts]);
@@ -30,30 +34,29 @@ export function Explore({ home, radiusKm, sites, shifts, q }: { home: [number, n
   return (
     <div className="space-y-3">
       <div className="seg grid-cols-2">
-        {(["map", "list"] as const).map((v) => <button type="button" key={v} onClick={() => setView(v)} className={`seg-item ${view === v ? "seg-on" : ""}`}>{v === "map" ? "Map" : "List"}</button>)}
+        {(["map", "list"] as const).map((v) => <button type="button" key={v} onClick={() => setView(v)} className={`seg-item ${view === v ? "seg-on" : ""}`}>{v === "map" ? t("Map") : t("List")}</button>)}
       </div>
       <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); router.push(`/worker/explore?q=${encodeURIComponent(query)}`); }}>
-        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search: forklift, concreter, Newtown…" className="input" />
-        <button className="btn-dark btn-sm">Go</button>
+        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("Search: forklift, concreter, Newtown…")} className="input" />
+        <button className="btn-dark btn-sm">{t("Go")}</button>
       </form>
       {view === "map" && (
         <>
           <LazyMap center={home} zoom={radiusKm > 30 ? 9 : 11} radiusKm={radiusKm} pins={pins} onPinClick={(id) => setSite(id === "home" ? null : id)} className="h-72" />
           <div className="text-steel">
-            Black dot is home. <b className="text-ink">Orange pins are shifts a boss offered you.</b> White pins have work open to anyone — tap one.
-            Grey dots are sites with nothing open right now.
+            {t("Black dot is home.")} <b className="text-ink">{t("Orange pins are shifts a boss offered you.")}</b> {t("White pins have work open to anyone — tap one. Grey dots are sites with nothing open right now.")}
           </div>
         </>
       )}
       {site && (
-        <div className="flex items-center justify-between"><div className="text-lg font-bold">{sites.find((s) => s.id === site)?.name}</div><button className="btn-ghost btn-sm" onClick={() => setSite(null)}>Show all</button></div>
+        <div className="flex items-center justify-between"><div className="text-lg font-bold">{sites.find((s) => s.id === site)?.name}</div><button className="btn-ghost btn-sm" onClick={() => setSite(null)}>{t("Show all")}</button></div>
       )}
-      {list.length === 0 ? <div className="card text-center text-steel text-lg py-6">{site ? "Nothing open at this site right now." : "No open shifts within your travel distance right now."}</div> : (
+      {list.length === 0 ? <div className="card text-center text-steel text-lg py-6">{site ? t("Nothing open at this site right now.") : t("No open shifts within your travel distance right now.")}</div> : (
         <div className="space-y-3">
-          <div className="text-lg font-bold">{list.length} shift{list.length > 1 ? "s" : ""} you could take</div>
+          <div className="text-lg font-bold">{plural(t, list.length, "{n} shift you could take", "{n} shifts you could take")}</div>
           {list.map((s) => (
             <div key={s.id}>
-              <div className="flex justify-between text-sm font-semibold px-1 mb-1"><span>{s.day === today ? "Today" : fmtDay(s.day)}</span><span className={s.avail === "free" ? "text-go" : "text-steel"}>{s.avail === "free" ? "You're free" : "You said busy — taking it is fine"}</span></div>
+              <div className="flex justify-between text-sm font-semibold px-1 mb-1"><span>{s.day === today ? t("Today") : fmtDay(s.day, locale)}</span><span className={s.avail === "free" ? "text-go" : "text-steel"}>{s.avail === "free" ? t("You're free") : t("You said busy — taking it is fine")}</span></div>
               <ShiftCard s={s} onTake={() => take(s.id)} pending={pending} />
             </div>
           ))}

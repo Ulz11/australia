@@ -87,6 +87,7 @@ npm run test:watch
 - `tests/integration/recheck.test.ts` — the White Card re-check queue against a real DB and a stubbed register: only a check that couldn't complete is queued, the backoff to the last try, a budget refusal that costs no attempt and makes no call, a register pause that asks nothing and burns no attempt (and a failure mid-run that defers the rest of the batch), an edit mid-check that throws the stale answer away, two runs never taking the same card, the cron's counts-only summary, and seeded demo cards that claim no check.
 - `tests/unit/fxRate.test.ts` + `tests/integration/fxRate.test.ts` — the AUD → MNT rate against stubbed Bank of Mongolia, ExchangeRate-API and QPay answers (no live calls): the AUD key never the USD one, source order and fallback, the 6-hour cache, the ₮1,000–₮5,000 band with numbers-only logs, the override, page load asking no one, the rate kept on the invoice at the tap, "try again in a few minutes", and the cron's `fx`. It is the only file that touches `fx_rates`; `invoiceQpay.test.ts` pins its rate with the override and covers the same-day / new-day / changed-total rule.
 - `tests/integration/usualWeek.test.ts` + `tests/unit/calendar.test.ts` — the usual week: `worker_free()`'s whole truth table (the day's own answer beating the pattern both ways, weekdays not in it, an empty pattern, the 14-day rule and the moment it comes back), matching finding a worker who never tapped a day and skipping one who said busy, the two worker actions (deduped and cleaned weekdays, 'clear' handing a day back), and on the screen what each day shows and what a tap does — a circle, so two or three taps land back where you started.
+- `tests/unit/i18n.test.ts` + `tests/integration/languages.test.ts` — the six languages: every dictionary covering exactly English's keys and nothing else, English being its own key, every `{gap}` surviving translation, the names that are never translated, the order a language is decided in (cookie, account, browser, English), the login screen handing its client components the Mongolian dictionary, a boss staying English whatever the cookie says, a Mongolian worker's reminder arriving in Mongolian beside their mate's in English — and that the no-emoji guard can tell Cyrillic, Devanagari and Chinese from a picture.
 - `tests/unit/` — the business rules, each written red → green: Award floor (`clampRate`), ticket normalisation (White Card always), batch size (3× open spots), clock-in labels (300 m / 15 min, a label not a gate), pay maths (OT split, rounding, negative hours), phone normalisation, date helpers.
 - `tests/integration/bugs.test.ts` — one regression per bug from the strict review (ticket wipe, White Card drop, double-booking race, removed-worker rejoin, cancel leaving bookings, counter-offer flow, overtime maths in notifications, OTP throttle, garbage input…).
 - `tests/integration/loop.test.ts` — the whole core loop through the **real server actions** against the seeded DB: post → match → take → clock in/out → approve (edited) → crew auto-add → disagree → paid → same-again → cancel → rematch. Self-cleaning, ~30 s.
@@ -115,6 +116,7 @@ lib/passkeys.ts      Face ID / fingerprint sign-in: relying party, options, veri
 lib/sms.ts           one text via ClickSend (or Twilio); never logs the number or the message
 lib/beta.ts          closed-beta guest list (BETA_INVITE_ONLY) — scripts/beta-invite.ts manages it
 lib/flags.ts         DEMO_CONSOLE / DEV_SHOW_OTP, forced off on a Vercel production deployment unless DEMO_SITE=1
+lib/i18n/            the worker side in six languages; en.ts is the source of truth (English is the key)
 lib/privacy.ts       PRIVACY_VERSION and the /privacy contact (app/privacy/page.tsx)
 lib/terms.ts         TERMS_VERSION for the rules at /terms (app/terms/page.tsx)
 lib/bossQueries.ts   what a boss may see about a worker (never visa type or card numbers)
@@ -195,6 +197,18 @@ A worker who has taken a shift is reminded **the evening before** and again **an
 - **Migration 018** also adds `notifications.urgent`. Whether a boss's job was short of workers is a fact about the moment the row was written, not about delivery time, so the row carries it; `alertFor` reads it alongside the existing "shift starts within three hours" rule.
 - **Worker home** shows tomorrow's shift in a compact **dark** card at the very top, above the offers — the one thing worth more than the offers that evening. Information, not attention, so it is never orange.
 - On **iPhone**, alerts only work in OnSite added to the Home Screen, so the toggle now says so on any iPhone that isn't running as a home-screen app rather than waiting for the push APIs to be missing.
+
+## Languages
+
+The **worker** side reads in the worker's own language: **English, Монгол, नेपाली, Português (BR), Español, 中文 (Simplified)**. Boss screens stay English this round — half a translated screen is worse than none. Arabic waits for right-to-left.
+
+- **Where it is chosen.** A globe row above the phone box on `/login` (so nobody has to read English to find out they don't have to), onboarding inherits it, and worker **Me → Settings → App language** opens the same sheet. The list is in each language's own name.
+- **What is remembered.** The `onsite_lang` cookie always — a logged-out page has nothing else to read — and `users.lang` when there is an account, so the same person gets their language on a new phone as soon as they sign in. A first visit with no cookie follows `Accept-Language` when it matches a language OnSite has, else English. `<html lang>` follows. Order: cookie, then the account, then the browser (`getLang()`, `lib/i18n/server.ts`).
+- **How it works.** `lib/i18n/en.ts` is the source of truth and **the English text is the key**, so the source still reads as English and a missing translation falls back to something a person can read. One file per language, each typed `Record<Key, string>`, so the compiler won't let one be short or carry a key English hasn't got. `t("Take it")` in a server component comes from `await getT()`; a client component uses `useT()` and gets its dictionary from a provider the worker layout (and `/login`, and onboarding) hands down — **only the language being read ever crosses the wire**. `{name}`-style gaps are filled after the lookup, so a translation can put them where its own grammar needs; one and many are two separate English keys (`plural`).
+- **Dates** on a translated screen use the reader's locale in Sydney time (`fmtDay(day, locale)`); **money stays `$`**, and **OnSite, Face ID, White Card, QPay, ABN and Building Award are never translated** — they are the words on the card and the screen.
+- **Reminders** are written in the worker's language, not the server's: they land on a phone as a push and there is nobody to translate them afterwards (`lib/reminders.ts` loads one dictionary per language that turns up in a pass). A boss's is English.
+- `/privacy` and `/terms` stay English, because they have to be exact — but each says so at the top **in the reader's language**: *"This page is in English. Ask someone you trust to read it with you."*
+- **The translations are drafts.** Only Mongolian has been checked by someone who speaks it. The other four need a native speaker's read before they reach real workers.
 
 ## Maps
 
@@ -343,4 +357,4 @@ It says only what the code does. Two places where that is worth knowing: **an ov
 
 ## Not in the MVP (on purpose)
 
-Ticket verification uploads, chat, ratings text, payroll/STP, admin dashboard. All later.
+Ticket verification uploads, chat, ratings text, payroll/STP, admin dashboard, boss screens in anything but English, Arabic (it needs right-to-left). All later.

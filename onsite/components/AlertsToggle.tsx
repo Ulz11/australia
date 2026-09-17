@@ -2,6 +2,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { BellRing } from "lucide-react";
 import { removePushSubscription, savePushSubscription, sendTestAlert } from "@/actions/alerts";
+import { useT } from "./Lang";
 
 type State = "checking" | "unsupported" | "ios-install" | "blocked" | "off" | "on";
 
@@ -23,6 +24,7 @@ export function AlertsToggle({ publicKey, role, compact, savedPush }: { publicKe
   const [state, setState] = useState<State>("checking");
   const [msg, setMsg] = useState<string | null>(null);
   const [pending, start] = useTransition();
+  const t = useT();
 
   useEffect(() => {
     (async () => {
@@ -52,10 +54,10 @@ export function AlertsToggle({ publicKey, role, compact, savedPush }: { publicKe
       const reg = await navigator.serviceWorker.ready;
       const sub = (await reg.pushManager.getSubscription()) ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(publicKey) }));
       const r = await savePushSubscription(plain(sub), navigator.userAgent);
-      if (!r.ok) { await sub.unsubscribe(); return setMsg(r.error ?? "Couldn't turn alerts on. Try again."); }
+      if (!r.ok) { await sub.unsubscribe(); return setMsg(r.error ?? t("Couldn't turn alerts on. Try again.")); }
       setState("on");
     } catch {
-      setMsg("This phone wouldn't turn alerts on. Check its notification settings and try again.");
+      setMsg(t("This phone wouldn't turn alerts on. Check its notification settings and try again."));
     }
   });
 
@@ -68,10 +70,10 @@ export function AlertsToggle({ publicKey, role, compact, savedPush }: { publicKe
 
   const test = () => start(async () => {
     const r = await sendTestAlert();
-    setMsg(r.ok ? "Sent — it should buzz in a few seconds." : r.error ?? "Couldn't send a test.");
+    setMsg(r.ok ? t("Sent — it should buzz in a few seconds.") : r.error ?? t("Couldn't send a test."));
   });
 
-  const what = role === "worker" ? "when a shift near you comes up" : "when workers take, finish or ask about a shift";
+  const what = role === "worker" ? t("when a shift near you comes up") : "when workers take, finish or ask about a shift";
 
   if (compact) {
     if (state !== "off" && state !== "ios-install") return null;
@@ -80,11 +82,11 @@ export function AlertsToggle({ publicKey, role, compact, savedPush }: { publicKe
       <div className="card flex items-start gap-3">
         <BellRing size={24} strokeWidth={2.25} aria-hidden className="shrink-0 mt-0.5 text-steel" />
         <div className="min-w-0 flex-1">
-          <div className="text-lg font-bold leading-tight">Get a buzz {what}</div>
+          <div className="text-lg font-bold leading-tight">{t("Get a buzz {what}", { what })}</div>
           {state === "ios-install"
-            ? <div className="text-steel mt-0.5">On iPhone: tap Share, then <b>Add to Home Screen</b>. Open OnSite from there and turn alerts on.</div>
-            : <><div className="text-steel mt-0.5">Shifts go to whoever answers first. Alerts reach you even with the app closed.</div>
-                <button onClick={turnOn} disabled={pending} className="btn-dark btn-sm mt-2">{pending ? "Turning on…" : "Turn on alerts"}</button></>}
+            ? <div className="text-steel mt-0.5">{t("On iPhone, add OnSite to your home screen first (Share, then Add to Home Screen), then turn alerts on there.")}</div>
+            : <><div className="text-steel mt-0.5">{t("Shifts go to whoever answers first. Alerts reach you even with the app closed.")}</div>
+                <button onClick={turnOn} disabled={pending} className="btn-dark btn-sm mt-2">{pending ? t("Turning on…") : t("Turn on alerts")}</button></>}
           {msg && <div className="text-sm font-semibold mt-1">{msg}</div>}
         </div>
       </div>
@@ -93,19 +95,19 @@ export function AlertsToggle({ publicKey, role, compact, savedPush }: { publicKe
 
   return (
     <div className="card space-y-2">
-      <div className="text-lg font-bold flex items-center gap-2"><BellRing size={20} strokeWidth={2.25} aria-hidden className="shrink-0" />Phone alerts</div>
-      {state === "checking" && <p className="text-steel">Checking this phone…</p>}
-      {state === "on" && <p>On for this phone. You'll get a buzz {what}.</p>}
-      {state === "off" && <p>Off. Turn them on to get a buzz {what}{role === "worker" ? " — shifts go to whoever answers first" : ""}.</p>}
-      {state === "blocked" && <p>Blocked in this browser's settings. Allow notifications for OnSite there, then come back.</p>}
-      {state === "ios-install" && <p>On iPhone, alerts need OnSite on your Home Screen: tap Share, then <b>Add to Home Screen</b>, open it from there and turn alerts on.</p>}
-      {state === "unsupported" && <p>This browser can't show alerts.{role === "worker" ? " We'll text you shift offers instead." : ""}</p>}
-      {role === "worker" && <p className="text-sm text-steel">Shift reminders: the evening before a shift and an hour before it starts.</p>}
-      {state === "off" && <button onClick={turnOn} disabled={pending} className="btn-primary">{pending ? "Turning on…" : "Turn on alerts"}</button>}
+      <div className="text-lg font-bold flex items-center gap-2"><BellRing size={20} strokeWidth={2.25} aria-hidden className="shrink-0" />{t("Phone alerts")}</div>
+      {state === "checking" && <p className="text-steel">{t("Checking this phone…")}</p>}
+      {state === "on" && <p>{t("On for this phone. You'll get a buzz {what}.", { what })}</p>}
+      {state === "off" && <p>{role === "worker" ? t("Off. Turn them on to get a buzz {what} — shifts go to whoever answers first.", { what }) : `Off. Turn them on to get a buzz ${what}.`}</p>}
+      {state === "blocked" && <p>{t("Blocked in this browser's settings. Allow notifications for OnSite there, then come back.")}</p>}
+      {state === "ios-install" && <p>{t("On iPhone, add OnSite to your home screen first (Share, then Add to Home Screen), then turn alerts on there.")}</p>}
+      {state === "unsupported" && <p>{role === "worker" ? t("This browser can't show alerts. We'll text you shift offers instead.") : "This browser can't show alerts."}</p>}
+      {role === "worker" && <p className="text-sm text-steel">{t("Shift reminders: the evening before a shift and an hour before it starts.")}</p>}
+      {state === "off" && <button onClick={turnOn} disabled={pending} className="btn-primary">{pending ? t("Turning on…") : t("Turn on alerts")}</button>}
       {state === "on" && (
         <div className="grid grid-cols-2 gap-2">
-          <button onClick={test} disabled={pending} className="btn-dark btn-sm w-full">Send me a test</button>
-          <button onClick={turnOff} disabled={pending} className="btn-ghost btn-sm w-full">Turn off</button>
+          <button onClick={test} disabled={pending} className="btn-dark btn-sm w-full">{t("Send me a test")}</button>
+          <button onClick={turnOff} disabled={pending} className="btn-ghost btn-sm w-full">{t("Turn off")}</button>
         </div>
       )}
       {msg && <p className="text-sm font-semibold">{msg}</p>}

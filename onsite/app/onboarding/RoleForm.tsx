@@ -3,18 +3,20 @@ import { useState } from "react";
 import Link from "next/link";
 import { AddressPin } from "@/components/AddressPin";
 import { Field } from "@/components/ui";
+import { useT } from "@/components/Lang";
 
 export function RoleForm({ invite, defaultRole, defaultName, error }: { invite?: string; defaultRole?: "boss" | "worker"; defaultName?: string; error?: string }) {
   const [role, setRole] = useState<"boss" | "worker">(defaultRole ?? "worker");
+  const t = useT();
   return (
     <>
-      <Field label="Which one are you?">
+      <Field label={t("Which one are you?")}>
         <div className="grid grid-cols-2 gap-2">
           {(["worker", "boss"] as const).map((r) => (
             <button key={r} type="button" onClick={() => setRole(r)}
               className={`rounded-2xl border-2 p-4 text-left min-h-[96px] ${role === r ? "border-ink bg-ink text-white" : "border-line bg-white"}`}>
-              <div className="text-xl font-extrabold">{r === "worker" ? "I want work" : "I need workers"}</div>
-              <div className={`${role === r ? "text-white/70" : "text-steel"}`}>{r === "worker" ? "Worker" : "Boss / subbie"}</div>
+              <div className="text-xl font-extrabold">{r === "worker" ? t("I want work") : t("I need workers")}</div>
+              <div className={`${role === r ? "text-white/70" : "text-steel"}`}>{r === "worker" ? t("Worker") : t("Boss / subbie")}</div>
             </button>
           ))}
         </div>
@@ -27,8 +29,8 @@ export function RoleForm({ invite, defaultRole, defaultName, error }: { invite?:
           </p>
         )}
       </Field>
-      <Field label="Your name" hint={defaultName ? "A boss who put you on their crew list called you this. Change it if it's not right." : undefined}>
-        <input name="name" className="input" placeholder="First and last" defaultValue={defaultName ?? ""} required />
+      <Field label={t("Your name")} hint={defaultName ? t("A boss who put you on their crew list called you this. Change it if it's not right.") : undefined}>
+        <input name="name" className="input" placeholder={t("First and last")} defaultValue={defaultName ?? ""} required />
       </Field>
       {role === "boss" ? (
         <>
@@ -37,16 +39,21 @@ export function RoleForm({ invite, defaultRole, defaultName, error }: { invite?:
         </>
       ) : (
         <>
-          <Field label="Where do you live?" hint="Type your suburb and press Find, or tap Use my location. We only show shifts near you."><AddressPin precision="suburb" /></Field>
-          <Field label="Got an invite code from a mate? (optional)"><input name="invite" className="input font-mono uppercase" defaultValue={invite ?? ""} placeholder="ABC123" /></Field>
+          <Field label={t("Where do you live?")} hint={t("Type your suburb and press Find, or tap Use my location. We only show shifts near you.")}><AddressPin precision="suburb" /></Field>
+          <Field label={t("Got an invite code from a mate? (optional)")}><input name="invite" className="input font-mono uppercase" defaultValue={invite ?? ""} placeholder="ABC123" /></Field>
         </>
       )}
       <label htmlFor="privacy" className="flex items-start gap-3 text-lg">
         <input id="privacy" type="checkbox" name="privacy" value="yes" required className="mt-1 h-6 w-6 shrink-0 accent-ink" />
-        <span>I agree to the <Link href="/privacy" target="_blank" className="font-bold underline">privacy notice</Link> and the <Link href="/terms" target="_blank" className="font-bold underline">terms</Link>.</span>
+        <span>
+          {t("I agree to the")}{" "}
+          <Link href="/privacy" target="_blank" className="font-bold underline">{t("privacy notice")}</Link>
+          {" "}{t("and the")}{" "}
+          <Link href="/terms" target="_blank" className="font-bold underline">{t("terms")}</Link>.
+        </span>
       </label>
       {error && <p className="text-warn font-semibold">{error}</p>}
-      <button className="btn-primary text-xl">Done</button>
+      <button className="btn-primary text-xl">{t("Done")}</button>
     </>
   );
 }

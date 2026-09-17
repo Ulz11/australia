@@ -5,11 +5,13 @@ import { Header, Page } from "@/components/Header";
 import { Say } from "@/components/ui";
 import { openShiftsNear } from "@/lib/workerQueries";
 import { Explore } from "./Explore";
+import { getT } from "@/lib/i18n/server";
 import Link from "next/link";
 export const dynamic = "force-dynamic";
 
 export default async function ExplorePage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
   const u = await requireRole("worker");
+  const t = await getT();
   const { q } = await searchParams;
   const [[w], shifts, sites] = await Promise.all([
     sql`SELECT ST_Y(home::geometry) AS lat, ST_X(home::geometry) AS lng, radius_km FROM workers WHERE user_id = ${u.id}`,
@@ -17,10 +19,10 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
     sql`SELECT p.id, p.name, ST_Y(p.location::geometry) AS lat, ST_X(p.location::geometry) AS lng
         FROM projects p, workers w WHERE w.user_id = ${u.id} AND NOT p.archived AND w.home IS NOT NULL AND ST_DWithin(w.home, p.location, w.radius_km * 1000)`,
   ]);
-  if (!w?.lat) return (<><Header title="Map" /><Page><Link href="/worker/me/settings" className="block"><Say tone="orange" icon={MapPin} title="Tell us where you live" sub="Tap here. Then the map shows jobs near you." /></Link></Page></>);
+  if (!w?.lat) return (<><Header title={t("Map")} /><Page><Link href="/worker/me/settings" className="block"><Say tone="orange" icon={MapPin} title={t("Tell us where you live")} sub={t("Tap here. Then the map shows jobs near you.")} /></Link></Page></>);
   return (
     <>
-      <Header title="Map" />
+      <Header title={t("Map")} />
       <Page>
         <Explore home={[w.lng, w.lat]} radiusKm={w.radius_km} q={q ?? ""}
           sites={sites.map((s) => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng }))}

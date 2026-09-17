@@ -3,6 +3,7 @@ import { useState } from "react";
 import { makeOffer } from "@/actions/worker";
 import { money, AWARD_CASUAL_FLOOR } from "@/lib/award";
 import { Field } from "@/components/ui";
+import { useT } from "@/components/Lang";
 
 /**
  * The deal request. Three numbers and a note — everything the app can hold the
@@ -17,15 +18,16 @@ export function OfferSheet({ shift, onClose }: {
   const [start, setStart] = useState(shift.start_time.slice(0, 5));
   const [err, setErr] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  const t = useT();
 
   const changed = rate !== shift.rate || hours !== shift.hours || start !== shift.start_time.slice(0, 5);
 
   if (sent)
     return (
       <div className="say-green mt-3">
-        <div className="say-title">Sent to the boss</div>
-        <div className="say-sub">He'll say yes, no, or come back with a different number. You'll get a message either way.</div>
-        <button className="btn bg-white text-ink btn-sm w-full mt-3" onClick={onClose}>Close</button>
+        <div className="say-title">{t("Sent to the boss")}</div>
+        <div className="say-sub">{t("They'll say yes, no, or come back with a different number. You'll get a message either way.")}</div>
+        <button className="btn bg-white text-ink btn-sm w-full mt-3" onClick={onClose}>{t("Close")}</button>
       </div>
     );
 
@@ -34,11 +36,11 @@ export function OfferSheet({ shift, onClose }: {
       action={async (fd) => { const r = await makeOffer(fd); if (r?.error) setErr(r.error); else setSent(true); }}>
       <input type="hidden" name="shift_id" value={shift.id} />
       <div>
-        <div className="text-xl font-extrabold">Ask for a different deal</div>
-        <div className="text-steel">Change what you want and say why. Nothing is booked until the boss agrees.</div>
+        <div className="text-xl font-extrabold">{t("Ask for a different deal")}</div>
+        <div className="text-steel">{t("Change what you want and say why. Nothing is booked until the boss agrees.")}</div>
       </div>
 
-      <Field label="Pay per hour" hint={`The shift says ${money(shift.rate)}. You can't ask below ${money(AWARD_CASUAL_FLOOR)}.`}>
+      <Field label={t("Pay per hour")} hint={t("The shift says {rate}. You can't ask below {floor}.", { rate: money(shift.rate), floor: money(AWARD_CASUAL_FLOOR) })}>
         <div className="flex items-center gap-2">
           <span className="text-2xl font-extrabold">$</span>
           <input name="rate" type="number" step="0.05" min={AWARD_CASUAL_FLOOR} value={rate} onChange={(e) => setRate(Number(e.target.value))}
@@ -47,30 +49,30 @@ export function OfferSheet({ shift, onClose }: {
       </Field>
 
       <div className="grid grid-cols-2 gap-2">
-        <Field label="Hours">
+        <Field label={t("Hours")}>
           <input name="hours" type="number" step="0.5" min={1} max={14} value={hours} onChange={(e) => setHours(Number(e.target.value))}
             className="input num text-xl font-bold text-center" />
         </Field>
-        <Field label="Start">
+        <Field label={t("Start")}>
           <input name="start_time" type="time" value={start} onChange={(e) => setStart(e.target.value)} className="input text-xl font-bold text-center" />
         </Field>
       </div>
 
-      <Field label="Say why (optional)" hint="One line. Bosses answer a reason faster than a number on its own.">
+      <Field label={t("Say why (optional)")} hint={t("One line. Bosses answer a reason faster than a number on its own.")}>
         <textarea name="message" rows={2} maxLength={300} className="input py-3 min-h-[80px]"
-          placeholder="I've got 8 years formwork and my own tools." />
+          placeholder={t("I've got 8 years formwork and my own tools.")} />
       </Field>
 
       {changed && (
         <div className="say-dark">
-          <div className="say-sub">You're asking for</div>
-          <div className="say-title num">{money(rate)}/h · {hours}h from {start} · about {money(rate * hours)} for the day</div>
+          <div className="say-sub">{t("You're asking for")}</div>
+          <div className="say-title num">{money(rate)}/h · {t("{n}h from {time}", { n: hours, time: start })} · {t("about {total} for the day", { total: money(rate * hours) })}</div>
         </div>
       )}
       {err && <div className="say-red"><div className="font-bold">{err}</div></div>}
       <div className="grid grid-cols-2 gap-2">
-        <button type="button" className="btn-ghost btn-sm w-full" onClick={onClose}>Cancel</button>
-        <button className="btn-dark btn-sm w-full">Send request</button>
+        <button type="button" className="btn-ghost btn-sm w-full" onClick={onClose}>{t("Cancel")}</button>
+        <button className="btn-dark btn-sm w-full">{t("Send request")}</button>
       </div>
     </form>
   );

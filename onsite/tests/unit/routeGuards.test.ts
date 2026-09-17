@@ -114,6 +114,24 @@ describe("the sign-out-a-phone actions guard themselves", () => {
 });
 
 /**
+ * Picking a language (actions/lang.ts) works signed out — the login screen is the first place anyone meets it —
+ * so it can't demand a role. It still has to read who is calling before it writes anything to an account.
+ */
+describe("the language action guards itself", () => {
+  const src = fs.readFileSync("actions/lang.ts", "utf8");
+  const body = src.slice(src.indexOf("export async function setLanguage"));
+  const lines = body.slice(body.indexOf("{\n") + 2).split("\n").map((l) => l.trim());
+
+  it("reads the user first, checks the language is one we have, and only writes the caller's own row", () => {
+    expect(src).toMatch(/^"use server";/);
+    expect(lines[0]).toBe("const u = await getUser();");
+    expect(lines[1]).toBe("if (!isLang(lang)) return;");
+    expect(src).toMatch(/UPDATE users SET lang = \$\{lang\} WHERE id = \$\{u\.id\}/);
+    expect(src).not.toMatch(/WHERE id = \$\{(?!u\.id)/);
+  });
+});
+
+/**
  * Staying signed in adds two routes outside the signed-in folders (lib/session.ts). Nothing in front of them
  * checks anything either, so each must verify the token — and that its user still exists — before it does anything.
  */

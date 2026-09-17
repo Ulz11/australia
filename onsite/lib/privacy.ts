@@ -5,7 +5,7 @@
  * version someone agreed to (migration 008), so anyone who agreed to an older one can be asked again.
  * It is the date of the change, with ".2", ".3"… for further changes on the same day.
  */
-export const PRIVACY_VERSION = "2026-09-18.3";   // ".3": numbers a boss puts on their own crew list
+export const PRIVACY_VERSION = "2026-09-18.4";   // ".4": the language you chose for the app
 
 /**
  * Who to contact about privacy. Read from the environment when the page is requested (never baked in at

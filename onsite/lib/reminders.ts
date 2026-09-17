@@ -1,5 +1,7 @@
 import { sql } from "./db";
 import { fmtTime, km } from "./util";
+import { isLang, translate, type Lang, type T } from "./i18n";
+import { tFor } from "./i18n/server";
 
 /**
  * Shift reminders. A worker who has taken a shift is reminded the **evening before** and again **an hour
@@ -16,6 +18,9 @@ import { fmtTime, km } from "./util";
  * inserts, and the index turns the rest into no-ops.
  *
  * Everything to do with the day is Sydney's, not the server's (`AT TIME ZONE 'Australia/Sydney'`).
+ *
+ * A worker's reminder is written in **their** language (users.lang), not the server's — it lands on their
+ * phone as a push and there is nobody to translate it afterwards. A boss's is English, like every boss screen.
  */
 
 /** From this hour, Sydney time, the evening-before reminders go out. */
@@ -26,16 +31,22 @@ export const SOON_TO_MIN = 80;
 
 export type ReminderCounts = { eve: number; soon: number; boss: number };
 
-type WorkerRow = { user_id: string; shift_id: string; start_time: string; role: string; site: string; dist_m: number | null };
+type WorkerRow = { user_id: string; shift_id: string; start_time: string; role: string; site: string; dist_m: number | null; lang: string };
 type BossRow = { user_id: string; shift_id: string; start_time: string; site: string; spots: number; taken: number };
 type NewRow = { user_id: string; shift_id: string; kind: string; body: string; urgent: boolean };
 
+/** No dictionary: the English key, with its {gaps} filled in. What every one of these says by default. */
+const inEnglish: T = (key, vars) => translate({}, key, vars);
+
 /** "Tomorrow 6:30am · Steel fixer at Parramatta Rd · 3.1 km from home" — the distance only when we know home. */
-export const eveWords = (r: { start_time: string; role: string; site: string; dist_m: number | null }) =>
-  `Tomorrow ${fmtTime(r.start_time)} · ${r.role} at ${r.site}${r.dist_m == null ? "" : ` · ${km(r.dist_m)} from home`}`;
+export const eveWords = (r: { start_time: string; role: string; site: string; dist_m: number | null }, t: T = inEnglish) =>
+  r.dist_m == null
+    ? t("Tomorrow {time} · {role} at {site}", { time: fmtTime(r.start_time), role: r.role, site: r.site })
+    : t("Tomorrow {time} · {role} at {site} · {km} from home", { time: fmtTime(r.start_time), role: r.role, site: r.site, km: km(r.dist_m) });
 
 /** "Starts in an hour · Parramatta Rd · Clock in when you're at the gate" */
-export const soonWords = (r: { site: string }) => `Starts in an hour · ${r.site} · Clock in when you're at the gate`;
+export const soonWords = (r: { site: string }, t: T = inEnglish) =>
+  t("Starts in an hour · {site} · Clock in when you're at the gate", { site: r.site });
 
 /**
  * What the boss reads. A job that is full is information: "Tomorrow 6:30am at Parramatta Rd · 3 of 3 booked".
@@ -68,9 +79,17 @@ export async function remindShifts(now: Date = new Date()): Promise<ReminderCoun
     evening ? eveningBosses(when.tomorrow) : Promise.resolve([] as BossRow[]),
   ]);
 
+  // One dictionary per language that actually turns up in this pass, not one per worker.
+  const langs = new Map<Lang, T>();
+  for (const r of [...eve, ...soon]) {
+    const lang: Lang = isLang(r.lang) ? r.lang : "en";
+    if (!langs.has(lang)) langs.set(lang, await tFor(lang));
+  }
+  const say = (r: WorkerRow): T => langs.get(isLang(r.lang) ? r.lang : "en")!;
+
   const rows: NewRow[] = [
-    ...eve.map((r) => ({ user_id: r.user_id, shift_id: r.shift_id, kind: "reminder_eve", body: eveWords(r), urgent: false })),
-    ...soon.map((r) => ({ user_id: r.user_id, shift_id: r.shift_id, kind: "reminder_soon", body: soonWords(r), urgent: false })),
+    ...eve.map((r) => ({ user_id: r.user_id, shift_id: r.shift_id, kind: "reminder_eve", body: eveWords(r, say(r)), urgent: false })),
+    ...soon.map((r) => ({ user_id: r.user_id, shift_id: r.shift_id, kind: "reminder_soon", body: soonWords(r, say(r)), urgent: false })),
     ...boss.map((r) => ({ user_id: r.user_id, shift_id: r.shift_id, kind: "tomorrow", body: bossWords(r), urgent: r.taken < r.spots })),
   ];
   if (!rows.length) return { eve: 0, soon: 0, boss: 0 };
@@ -88,23 +107,25 @@ export async function remindShifts(now: Date = new Date()): Promise<ReminderCoun
 /** Every worker with a shift tomorrow they are still on. A cancelled booking or a called-off shift is not one. */
 const eveningWorkers = (tomorrow: string) => sql<WorkerRow[]>`
   SELECT b.worker_id AS user_id, s.id AS shift_id, COALESCE(b.agreed_start, s.start_time)::text AS start_time,
-         s.role, p.name AS site,
+         s.role, p.name AS site, u.lang,
          CASE WHEN w.home IS NULL THEN NULL ELSE ST_Distance(p.location, w.home)::int END AS dist_m
   FROM bookings b
   JOIN shifts s ON s.id = b.shift_id AND s.status IN ('open','filled') AND s.day = ${tomorrow}::date
   JOIN projects p ON p.id = s.project_id AND NOT p.archived
   JOIN workers w ON w.user_id = b.worker_id
+  JOIN users u ON u.id = b.worker_id
   WHERE b.status = 'accepted'`;
 
 /** The same people, between 60 and 80 minutes before their shift starts — in Sydney, whatever the server thinks. */
 const soonWorkers = (now: Date) => sql<WorkerRow[]>`
   SELECT b.worker_id AS user_id, s.id AS shift_id, COALESCE(b.agreed_start, s.start_time)::text AS start_time,
-         s.role, p.name AS site,
+         s.role, p.name AS site, u.lang,
          CASE WHEN w.home IS NULL THEN NULL ELSE ST_Distance(p.location, w.home)::int END AS dist_m
   FROM bookings b
   JOIN shifts s ON s.id = b.shift_id AND s.status IN ('open','filled')
   JOIN projects p ON p.id = s.project_id AND NOT p.archived
   JOIN workers w ON w.user_id = b.worker_id
+  JOIN users u ON u.id = b.worker_id
   WHERE b.status = 'accepted'
     AND ((s.day + COALESCE(b.agreed_start, s.start_time)) AT TIME ZONE 'Australia/Sydney') - ${now}::timestamptz
         BETWEEN make_interval(mins => ${SOON_FROM_MIN}) AND make_interval(mins => ${SOON_TO_MIN})`;

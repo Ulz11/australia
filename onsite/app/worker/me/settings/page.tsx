@@ -11,11 +11,14 @@ import { listPasskeys } from "@/lib/passkeys";
 import { listSessions } from "@/lib/session";
 import { logout } from "@/actions/auth";
 import { MeForm } from "../MeForm";
+import { LanguagePicker } from "@/components/LanguagePicker";
+import { getLang, getT } from "@/lib/i18n/server";
 export const dynamic = "force-dynamic";
 
 /** The switches, out of the way of the record: where you work, alerts, how you sign in, and the way out. */
 export default async function Settings() {
   const u = await requireRole("worker");
+  const [lang, t] = await Promise.all([getLang(), getT()]);
   const [[w], crews, passkeys, sessions, savedPush] = await Promise.all([
     sql`SELECT radius_km, tickets, visa_type, home_label,
           ST_Y(home::geometry) AS lat, ST_X(home::geometry) AS lng
@@ -29,9 +32,10 @@ export default async function Settings() {
   ]);
   return (
     <>
-      <Header title="Settings" back="/worker/me" />
+      <Header title={t("Settings")} back="/worker/me" />
       <Page>
-        <Section title="Where and how far" hint="These two decide which shifts you get shown at all." />
+        <LanguagePicker current={lang} />
+        <Section title={t("Where and how far")} hint={t("These two decide which shifts you get shown at all.")} />
         <MeForm name={u.name!} radius={w.radius_km} tickets={w.tickets} visa={w.visa_type}
           home={w.lat ? { lat: w.lat, lng: w.lng, label: w.home_label } : null} />
 
@@ -41,10 +45,10 @@ export default async function Settings() {
         <SessionsSection sessions={sessions} currentSid={u.sid} />
 
         <div className="card space-y-2">
-          <div className="text-lg font-bold">Your rights, short version</div>
-          <p>Every shift here is a casual job with the boss who posted it. No ABN. Minimum pay is the Building Award rate. Super goes on top. Your hours record is yours.</p>
+          <div className="text-lg font-bold">{t("Your rights, short version")}</div>
+          <p>{t("Every shift here is a casual job with the boss who posted it. No ABN. Minimum pay is the Building Award rate. Super goes on top. Your hours record is yours.")}</p>
         </div>
-        <form action={logout}><button className="btn-ghost">Sign out</button></form>
+        <form action={logout}><button className="btn-ghost">{t("Sign out")}</button></form>
       </Page>
     </>
   );

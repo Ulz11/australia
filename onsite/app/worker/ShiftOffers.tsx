@@ -6,6 +6,7 @@ import { TICKETS } from "@/lib/award";
 import { otInWords, payForShift } from "@/lib/rules";
 import { fmtDay, fmtTime, km, todayIso } from "@/lib/util";
 import { Flag } from "@/components/ui";
+import { useT, useLocale } from "@/components/Lang";
 import { OfferSheet } from "./OfferSheet";
 
 export type O = {
@@ -43,6 +44,8 @@ export function ShiftOffers({ offers }: { offers: O[] }) {
 function Card({ o, onTake, pending, err }: { o: O; onTake: () => void; pending: boolean; err?: string }) {
   const [offering, setOffering] = useState(false);
   const today = todayIso();
+  const t = useT();
+  const locale = useLocale();
   const left = o.spots - o.taken;
   const pay = payForShift(o.hours, o.rate, { ot_mode: o.ot_mode as never, ot_after_hours: o.ot_after_hours, ot_multiplier: o.ot_multiplier });
   const need = o.tickets_required.map((t) => TICKETS[t] ?? t).join(", ");
@@ -50,37 +53,37 @@ function Card({ o, onTake, pending, err }: { o: O; onTake: () => void; pending: 
   return (
     <div className="rounded-2xl border-2 border-hv bg-hv-soft p-4">
       <div className="flex items-center justify-between gap-2">
-        <Flag tone="orange" icon={BellRing}>{o.direct ? "Booked for you" : "Offered to you"}</Flag>
-        {left === 1 && o.spots > 1 && <span className="text-sm font-bold text-steel">Last spot</span>}
+        <Flag tone="orange" icon={BellRing}>{o.direct ? t("Booked for you") : t("Offered to you")}</Flag>
+        {left === 1 && o.spots > 1 && <span className="text-sm font-bold text-steel">{t("Last spot")}</span>}
       </div>
 
       <div className="text-2xl font-extrabold mt-2 leading-tight">
-        {o.day === today ? "Today" : fmtDay(o.day)} · {fmtTime(o.start_time)}
+        {o.day === today ? t("Today") : fmtDay(o.day, locale)} · {fmtTime(o.start_time)}
       </div>
       <div className="text-lg font-bold">{o.site}</div>
       <div className="text-steel flex items-center gap-1.5">
         <MapPin size={16} strokeWidth={2.25} aria-hidden className="shrink-0" />
-        {o.suburb}{o.dist_m != null ? ` · ${km(o.dist_m)} from home` : ""}
+        {o.suburb}{o.dist_m != null ? ` · ${t("{km} from home", { km: km(o.dist_m) })}` : ""}
       </div>
 
-      <div className="mt-2 text-lg">{o.role} · {o.hours} hours</div>
-      <div className="num"><b>${o.rate.toFixed(2)} an hour</b> <span className="text-steel">· about ${Math.round(pay.gross).toLocaleString("en-AU")} for the day</span></div>
-      <div className="text-sm text-steel">{o.boss} · overtime: {otInWords({ ot_mode: o.ot_mode as never, ot_after_hours: o.ot_after_hours, ot_multiplier: o.ot_multiplier }, o.rate)}</div>
+      <div className="mt-2 text-lg">{o.role} · {t("{n} hours", { n: o.hours })}</div>
+      <div className="num"><b>{t("${rate} an hour", { rate: o.rate.toFixed(2) })}</b> <span className="text-steel">· {t("about ${total} for the day", { total: Math.round(pay.gross).toLocaleString("en-AU") })}</span></div>
+      <div className="text-sm text-steel">{o.boss} · {t("overtime:")} {otInWords({ ot_mode: o.ot_mode as never, ot_after_hours: o.ot_after_hours, ot_multiplier: o.ot_multiplier }, o.rate)}</div>
 
       <div className={`mt-2 font-semibold flex items-start gap-1.5 ${o.tickets_ok ? "text-go" : "text-warn"}`}>
         {o.tickets_ok
-          ? <><Check size={20} strokeWidth={2.5} aria-hidden className="shrink-0" />You have what it needs: {need}</>
-          : <><X size={20} strokeWidth={2.5} aria-hidden className="shrink-0" />Needs {missing} — that one isn't on your cards</>}
+          ? <><Check size={20} strokeWidth={2.5} aria-hidden className="shrink-0" />{t("You have what it needs: {cards}", { cards: need })}</>
+          : <><X size={20} strokeWidth={2.5} aria-hidden className="shrink-0" />{t("Needs {cards} — that one isn't on your cards", { cards: missing })}</>}
       </div>
-      {o.clash && <div className="text-sm font-semibold text-warn mt-1">You already have a shift that day.</div>}
+      {o.clash && <div className="text-sm font-semibold text-warn mt-1">{t("You already have a shift that day.")}</div>}
 
-      <button className="btn-primary mt-3" onClick={onTake} disabled={pending}>{pending ? "Taking it…" : "Take it"}</button>
+      <button className="btn-primary mt-3" onClick={onTake} disabled={pending}>{pending ? t("Taking it…") : t("Take it")}</button>
       {err && <div className="say-red mt-2"><div className="font-bold">{err}</div></div>}
 
       {o.allow_offers && !offering && (
         o.offered
-          ? <div className="text-center text-sm text-steel mt-2 font-semibold">You've asked for a different deal — waiting on the boss.</div>
-          : <button className="btn-ghost btn-sm w-full mt-2" onClick={() => setOffering(true)}>Ask for a different deal</button>
+          ? <div className="text-center text-sm text-steel mt-2 font-semibold">{t("You've asked for a different deal — waiting on the boss.")}</div>
+          : <button className="btn-ghost btn-sm w-full mt-2" onClick={() => setOffering(true)}>{t("Ask for a different deal")}</button>
       )}
       {offering && <OfferSheet shift={{ id: o.id, rate: o.rate, hours: o.hours, start_time: o.start_time, site: o.site }} onClose={() => setOffering(false)} />}
     </div>

@@ -11,6 +11,7 @@ import { addDays, fmtTime, todayIso } from "@/lib/util";
 import { nextShiftWords } from "@/lib/reminders";
 import { savedPushFingerprint } from "@/lib/alerts";
 import { AlertsToggle } from "@/components/AlertsToggle";
+import { getT } from "@/lib/i18n/server";
 import { NewCrewCard, type CrewRow } from "@/components/CrewsSection";
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,7 @@ const suburbOf = (address: string | null) => (address ?? "").split(",").pop()?.t
 
 export default async function WorkerHome() {
   const u = await requireRole("worker");
+  const t = await getT();
   const [[w], avail, offers, shifts, bookingsAll, notes, crews] = await Promise.all([
     // usual_days is the pattern; `pattern_live` is whether it still counts (worker_free() stops it after 14 quiet
     // days), and `any_days` says whether this worker has ever answered for a single day — a first-timer sees
@@ -46,17 +48,17 @@ export default async function WorkerHome() {
   // Tomorrow's shift, at the top of the screen from the evening before. The one thing worth more than the
   // offers below it that evening — and information, not something to act on, so it is dark and never orange.
   const soon = bookings.find((b) => b.day === addDays(today, 1));
-  const nowWords = now?.status === "clocked_in" ? "You're clocked in. Clock out when you finish."
-    : now?.status === "clocked_out" ? "Done for the day. Your hours are with the boss."
-    : "Clock in on the app when you get to the site.";
+  const nowWords = now?.status === "clocked_in" ? t("You're clocked in. Clock out when you finish.")
+    : now?.status === "clocked_out" ? t("Done for the day. Your hours are with the boss.")
+    : t("Clock in on the app when you get to the site.");
 
   return (
     <>
-      <Header title={`G'day, ${u.name?.split(" ")[0]}`} />
+      <Header title={t("G'day, {name}", { name: u.name?.split(" ")[0] ?? "" })} />
       <Page>
         {!w.has_home && (
           <Link href="/worker/me/settings" className="block">
-            <Say tone="orange" icon={MapPin} title="Tell us where you live" sub="Tap here. We only show shifts near you." />
+            <Say tone="orange" icon={MapPin} title={t("Tell us where you live")} sub={t("Tap here. We only show shifts near you.")} />
           </Link>
         )}
 
@@ -76,21 +78,21 @@ export default async function WorkerHome() {
             <div className="flex items-start gap-3">
               <Clock size={24} strokeWidth={2.25} aria-hidden className="shrink-0 mt-0.5" />
               <div className="min-w-0 flex-1">
-                <div className="say-sub">Today</div>
-                <div className="say-title">{now.site} · {fmtTime(now.start_time)} start</div>
+                <div className="say-sub">{t("Today")}</div>
+                <div className="say-title">{t("{site} · {time} start", { site: now.site, time: fmtTime(now.start_time) })}</div>
                 <div className="say-sub">{nowWords}</div>
               </div>
             </div>
-            <Link href="/worker/shift" className="btn bg-white text-ink w-full mt-3">Open my shift</Link>
+            <Link href="/worker/shift" className="btn bg-white text-ink w-full mt-3">{t("Open my shift")}</Link>
           </div>
         )}
 
-        <Section title={offers.length > 0 ? `Offers for you · ${offers.length}` : "Offers for you"}
-          hint={offers.length > 0 ? "A boss picked you for these. First to take it gets it." : undefined} />
+        <Section title={offers.length > 0 ? t("Offers for you · {n}", { n: offers.length }) : t("Offers for you")}
+          hint={offers.length > 0 ? t("A boss picked you for these. First to take it gets it.") : undefined} />
         {offers.length === 0 ? (
           <div className="card text-steel">
-            <div className="font-bold text-ink text-lg">No offers right now.</div>
-            Mark the days you're free below and we'll buzz you when a boss nearby needs someone.
+            <div className="font-bold text-ink text-lg">{t("No offers right now.")}</div>
+            {t("Mark the days you're free below and we'll buzz you when a boss nearby needs someone.")}
           </div>
         ) : (
           <ShiftOffers offers={offers.map((o) => ({
@@ -105,7 +107,7 @@ export default async function WorkerHome() {
         {process.env.VAPID_PUBLIC_KEY && <AlertsToggle publicKey={process.env.VAPID_PUBLIC_KEY} savedPush={await savedPushFingerprint(u.id)} role="worker" compact />}
         {notes.map((n) => <Say key={n.id} tone={n.kind === "paid" ? "green" : n.kind === "removed" || n.kind === "cancelled" ? "red" : "dark"} title={n.body} />)}
 
-        <Section title="Your days" hint="Set the days you're usually free, then change any single day below." />
+        <Section title={t("Your days")} hint={t("Set the days you're usually free, then change any single day below.")} />
         <Calendar
           usualDays={(w.usual_days ?? []).map(Number)}
           patternLive={w.pattern_live}
