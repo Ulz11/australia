@@ -18,7 +18,13 @@ const suburbOf = (address: string | null) => (address ?? "").split(",").pop()?.t
 export default async function WorkerHome() {
   const u = await requireRole("worker");
   const [[w], avail, offers, shifts, bookingsAll, notes] = await Promise.all([
-    sql`SELECT home IS NOT NULL AS has_home FROM workers WHERE user_id = ${u.id}`,
+    // usual_days is the pattern; `pattern_live` is whether it still counts (worker_free() stops it after 14 quiet
+    // days), and `any_days` says whether this worker has ever answered for a single day — a first-timer sees
+    // Mon–Fri offered in the card, unsaved.
+    sql`SELECT w.home IS NOT NULL AS has_home, w.usual_days,
+               u.last_seen_at IS NOT NULL AND u.last_seen_at > now() - interval '14 days' AS pattern_live,
+               EXISTS (SELECT 1 FROM availability a WHERE a.worker_id = w.user_id) AS any_days
+        FROM workers w JOIN users u ON u.id = w.user_id WHERE w.user_id = ${u.id}`,
     sql`SELECT day::text, status FROM availability WHERE worker_id = ${u.id} AND day >= CURRENT_DATE - 45`,
     offersFor(u.id),
     openShiftsNear(u.id),
@@ -76,8 +82,11 @@ export default async function WorkerHome() {
         {process.env.VAPID_PUBLIC_KEY && <AlertsToggle publicKey={process.env.VAPID_PUBLIC_KEY} savedPush={await savedPushFingerprint(u.id)} role="worker" compact />}
         {notes.map((n) => <Say key={n.id} tone={n.kind === "paid" ? "green" : n.kind === "removed" || n.kind === "cancelled" ? "red" : "dark"} title={n.body} />)}
 
-        <Section title="Your days" hint="Tap a day to say if you're free. Bosses nearby only see the days you mark." />
+        <Section title="Your days" hint="Set the days you're usually free, then change any single day below." />
         <Calendar
+          usualDays={(w.usual_days ?? []).map(Number)}
+          patternLive={w.pattern_live}
+          first={(w.usual_days ?? []).length === 0 && !w.any_days}
           availability={Object.fromEntries(avail.map((a) => [a.day, a.status]))}
           shifts={shifts.map((s) => ({ id: s.id, day: s.day, start_time: s.start_time, hours: Number(s.hours), rate: Number(s.rate), role: s.role, site: s.site, dist_m: s.dist_m, boss: s.company || s.boss_name, spots: s.spots, taken: s.taken, tickets_ok: s.tickets_ok, notified: s.notified, mine: s.mine, tickets_required: s.tickets_required, approve_h: s.approve_hours_avg, pay_d: s.pay_days_avg, ot_mode: s.ot_mode, ot_after_hours: Number(s.ot_after_hours), ot_multiplier: s.ot_multiplier == null ? null : Number(s.ot_multiplier), allow_offers: s.allow_offers, offered: s.offered }))}
           bookings={bookings.map((b) => ({ id: b.id, day: b.day, start_time: b.start_time, site: b.site, hours: Number(b.hours), status: b.status }))}

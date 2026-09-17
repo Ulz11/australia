@@ -6,7 +6,7 @@ import { pickBatch, urgencyOf, NEW_WORKER_PRIOR, ROUND_MINUTES, URGENT_HOURS, ty
 /**
  * The five gates, cheapest first, all in one query:
  *  1. distance  – worker home within their own radius of the site
- *  2. free      – worker marked that day free
+ *  2. free      – worker_free(): their own answer for that day, or their usual week (migration 017)
  *  3. tickets   – shift's required tickets ⊆ worker's tickets
  *  4. not blocked either way
  *  5. not already booked / notified for this shift
@@ -29,9 +29,9 @@ export async function findCandidates(shiftId: string, limit: number): Promise<Ca
     FROM s
     JOIN workers w ON w.home IS NOT NULL
       AND ST_DWithin(w.home, s.location, w.radius_km * 1000)                                -- 1
-    JOIN availability a ON a.worker_id = w.user_id AND a.day = s.day AND a.status = 'free'  -- 2
     LEFT JOIN worker_stats st ON st.worker_id = w.user_id
-    WHERE s.tickets_required <@ w.tickets                                                    -- 3
+    WHERE worker_free(w.user_id, s.day)                                                      -- 2
+      AND s.tickets_required <@ w.tickets                                                    -- 3
       AND NOT EXISTS (SELECT 1 FROM blocks bl WHERE bl.boss_id = s.boss_id AND bl.worker_id = w.user_id) -- 4
       AND NOT EXISTS (SELECT 1 FROM bookings b WHERE b.shift_id = s.id AND b.worker_id = w.user_id)      -- 5
       AND NOT EXISTS (SELECT 1 FROM notifications n WHERE n.shift_id = s.id AND n.user_id = w.user_id AND n.kind = 'shift_match')

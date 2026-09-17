@@ -1,26 +1,59 @@
 "use client";
 import { useMemo, useOptimistic, useState, useTransition } from "react";
 import { BellRing, Check, ChevronLeft, ChevronRight, X } from "lucide-react";
-import { setAvailability, setPattern, takeShift } from "@/actions/worker";
+import { setAvailability, takeShift } from "@/actions/worker";
 import { fmtDay, fmtTime, km, todayIso } from "@/lib/util";
 import { TICKETS } from "@/lib/award";
 import { otInWords } from "@/lib/rules";
 import { Flag } from "@/components/ui";
 import { OfferSheet } from "./OfferSheet";
+import { UsualWeek } from "./UsualWeek";
 
 export type S = { id: string; day: string; start_time: string; hours: number; rate: number; role: string; site: string; dist_m: number; boss: string; spots: number; taken: number; tickets_ok: boolean; notified: boolean; mine: boolean; tickets_required: string[]; approve_h: number | null; pay_d: number | null; ot_mode?: string; ot_after_hours?: number; ot_multiplier?: number | null; allow_offers?: boolean; offered?: boolean };
 type B = { id: string; day: string; start_time: string; site: string; hours: number; status: string };
 const iso = (d: Date) => d.toISOString().slice(0, 10);
+/** ISO weekday of a plain date: 1 = Mon … 7 = Sun. */
+const isoDow = (d: string) => new Date(d + "T00:00:00Z").getUTCDay() || 7;
+const WEEKDAY = ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
-export function Calendar({ availability, shifts, bookings }: { availability: Record<string, string>; shifts: S[]; bookings: B[] }) {
+/** The four things a day can be. "usual" is free because of the usual week, not because anyone tapped it. */
+export type DayState = "working" | "free" | "usual" | "busy";
+/** What is known about one day: booked or not, the worker's own answer if they gave one, and their usual week. */
+export type DayFacts = { booked: boolean; explicit?: string; usual: boolean };
+
+/** The same order worker_free() reads it in (migration 017): a day's own answer always beats the usual week. */
+export const dayState = (f: DayFacts): DayState =>
+  f.booked ? "working" : f.explicit === "free" ? "free" : f.explicit === "busy" ? "busy" : f.usual ? "usual" : "busy";
+
+/**
+ * What a tap on a day does. It walks round in a circle, so a tap is never a one-way door: a plain busy day
+ * becomes free, a free day becomes busy, and a busy day you set yourself goes back to whatever your usual
+ * week says. Two or three taps land you exactly where you started.
+ */
+export const nextDayState = (f: DayFacts): "free" | "busy" | "clear" =>
+  f.explicit === "free" ? "busy" : f.explicit === "busy" ? "clear" : f.usual ? "busy" : "free";
+
+/**
+ * `usualDays` is the worker's usual week (ISO 1–7) and `patternLive` says it still counts — it stops after
+ * 14 days without opening the app, exactly as worker_free() decides it for bosses (migration 017). `first` is
+ * a worker who has neither a pattern nor a single day answered: the card above offers Mon–Fri, unsaved.
+ */
+export function Calendar({ availability, shifts, bookings, usualDays, patternLive, first }: {
+  availability: Record<string, string>; shifts: S[]; bookings: B[];
+  usualDays: number[]; patternLive: boolean; first: boolean;
+}) {
   const today = todayIso();
   const [month, setMonth] = useState(() => today.slice(0, 7));
   const [sel, setSel] = useState<string>(today);
   const [pending, start] = useTransition();
   const [err, setErr] = useState<string | null>(null);
-  const [showPattern, setShowPattern] = useState(false);
-  // Free/Busy flips on screen the instant you tap; the server catches up.
-  const [avail, setAvailOpt] = useOptimistic(availability, (cur, upd: { day: string; status: string }) => ({ ...cur, [upd.day]: upd.status }));
+  // Free/Busy flips on screen the instant you tap; the server catches up. "clear" takes the day's own answer
+  // away, so the usual week decides it again.
+  const [avail, setAvailOpt] = useOptimistic(availability, (cur, upd: { day: string; status: "free" | "busy" | "clear" }) => {
+    const next = { ...cur };
+    if (upd.status === "clear") delete next[upd.day]; else next[upd.day] = upd.status;
+    return next;
+  });
 
   const days = useMemo(() => {
     const [y, m] = month.split("-").map(Number);
@@ -34,13 +67,18 @@ export function Calendar({ availability, shifts, bookings }: { availability: Rec
   const bookByDay = useMemo(() => Object.fromEntries(bookings.map((b) => [b.day, b])), [bookings]);
   const moveMonth = (n: number) => { const [y, m] = month.split("-").map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); setMonth(iso(d).slice(0, 7)); };
 
+  const factsFor = (d: string): DayFacts => ({ booked: !!bookByDay[d], explicit: avail[d], usual: patternLive && usualDays.includes(isoDow(d)) });
+  const stateOf = (d: string) => dayState(factsFor(d));
+  const set = (d: string, s: "free" | "busy" | "clear") => start(async () => { setAvailOpt({ day: d, status: s }); await setAvailability(d, s); });
+
   const selShifts = byDay[sel] ?? [];
   const selBook = bookByDay[sel];
-  const status = selBook ? "working" : avail[sel] ?? "busy";
-  const flip = (s: "free" | "busy") => start(async () => { setAvailOpt({ day: sel, status: s }); await setAvailability(sel, s); });
+  const status = stateOf(sel);
+  const flip = (s: "free" | "busy") => set(sel, s);
 
   return (
     <div className="space-y-3">
+      <UsualWeek days={usualDays} first={first} />
       <div className="card p-3">
         <div className="flex items-center justify-between mb-2">
           <button className="btn-ghost btn-sm" aria-label="Month before" onClick={() => moveMonth(-1)}><ChevronLeft size={22} strokeWidth={2.5} aria-hidden /></button>
@@ -53,12 +91,13 @@ export function Calendar({ availability, shifts, bookings }: { availability: Rec
             if (!d) return <div key={i} />;
             const past = d < today;
             const b = bookByDay[d];
-            const st = b ? "working" : avail[d] ?? "busy";
+            const st = stateOf(d);
             const n = (byDay[d] ?? []).length;
             const hot = (byDay[d] ?? []).some((s) => s.notified);
-            const cls = st === "working" ? "bg-ink text-white" : st === "free" ? "bg-go text-white" : "bg-site text-steel";
+            const cls = st === "working" ? "bg-ink text-white" : st === "free" ? "bg-go text-white"
+              : st === "usual" ? "bg-go/20 text-ink" : "bg-site text-steel";
             return (
-              <button key={d} onClick={() => setSel(d)} disabled={past}
+              <button key={d} onClick={() => { setSel(d); if (!b) set(d, nextDayState(factsFor(d))); }} disabled={past || pending}
                 className={`relative aspect-square rounded-xl text-base font-bold ${cls} ${past ? "opacity-30" : ""} ${sel === d ? "ring-[3px] ring-ink ring-offset-1" : ""}`}>
                 {Number(d.slice(8))}
                 {b && <span className="absolute bottom-0.5 inset-x-0 text-[10px] font-normal leading-none">{fmtTime(b.start_time).replace(":00", "")}</span>}
@@ -68,7 +107,7 @@ export function Calendar({ availability, shifts, bookings }: { availability: Rec
           })}
         </div>
         <div className="flex gap-4 text-sm text-steel mt-3 flex-wrap font-semibold">
-          <L c="bg-go" t="Free" /><L c="bg-site border border-line" t="Busy" /><L c="bg-ink" t="Working" /><span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-hv" />Offer for you</span>
+          <L c="bg-go" t="Free" /><L c="bg-go/20" t="Usually free" /><L c="bg-site border border-line" t="Busy" /><L c="bg-ink" t="Working" /><span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-hv" />Offer for you</span>
         </div>
       </div>
 
@@ -85,10 +124,14 @@ export function Calendar({ availability, shifts, bookings }: { availability: Rec
           <div>
             <div className="text-base font-bold mb-1.5">Can you work this day?</div>
             <div className="seg grid-cols-2">
-              <button disabled={pending} onClick={() => flip("free")} className={`seg-item ${status === "free" ? "bg-go text-white" : ""}`}>Yes, I'm free</button>
+              <button disabled={pending} onClick={() => flip("free")} className={`seg-item ${status === "free" || status === "usual" ? "bg-go text-white" : ""}`}>Yes, I&apos;m free</button>
               <button disabled={pending} onClick={() => flip("busy")} className={`seg-item ${status === "busy" ? "bg-slab text-white" : ""}`}>No, busy</button>
             </div>
-            <div className="text-sm text-steel mt-1">{status === "free" ? "Bosses nearby can send you shifts for this day." : "You won't be asked about this day."}</div>
+            <div className="text-sm text-steel mt-1">
+              {status === "usual" ? `${WEEKDAY[isoDow(sel)]} is in your usual week, so bosses nearby can send you shifts for this day.`
+                : status === "free" ? "Bosses nearby can send you shifts for this day."
+                : "You won't be asked about this day."}
+            </div>
           </div>
         )}
 
@@ -103,19 +146,6 @@ export function Calendar({ availability, shifts, bookings }: { availability: Rec
         )}
       </div>
 
-      <button className="text-steel underline text-base" onClick={() => setShowPattern(!showPattern)}>I'm free the same days every week</button>
-      {showPattern && (
-        <form action={setPattern} className="card space-y-3">
-          <div className="text-lg font-bold">Tick the days you're usually free</div>
-          <div className="grid grid-cols-4 gap-2">
-            {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d, i) => (
-              <label key={d} className="cursor-pointer"><input type="checkbox" name="dow" value={(i + 1) % 7} className="peer sr-only" /><span className="chip justify-center w-full peer-checked:bg-go peer-checked:text-white peer-checked:border-go">{d}</span></label>
-            ))}
-          </div>
-          <button className="btn-dark">Set for the next 8 weeks</button>
-          <div className="text-sm text-steel">Days you already have a shift on stay as they are.</div>
-        </form>
-      )}
     </div>
   );
 }

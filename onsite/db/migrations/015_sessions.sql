@@ -21,5 +21,5 @@ CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions(user_id);
 
 -- When this person last had the app open. Bumped by sign-in and by the refresh routes (at most every 6 h per
 -- browser), so it is a "still using OnSite" mark rather than a log. The usual week reads it: a worker who
--- stopped opening the app stops being shown to bosses as free (migration 016, worker_free).
+-- stopped opening the app stops being shown to bosses as free (migration 017, worker_free).
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at timestamptz;

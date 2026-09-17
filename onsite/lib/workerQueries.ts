@@ -11,7 +11,7 @@ export async function openShiftsNear(workerId: string, opts: { day?: string; q?:
            us.name AS boss_name, bo.company, bst.approve_hours_avg, bst.pay_days_avg, bst.approved_count,
            (SELECT COUNT(*) FROM bookings b WHERE b.shift_id = s.id AND b.status NOT IN ('removed','cancelled'))::int AS taken,
            (s.tickets_required <@ w.tickets) AS tickets_ok,
-           COALESCE((SELECT a.status FROM availability a WHERE a.worker_id = w.user_id AND a.day = s.day), 'busy') AS avail,
+           CASE WHEN worker_free(w.user_id, s.day) THEN 'free' ELSE 'busy' END AS avail,
            EXISTS (SELECT 1 FROM bookings b WHERE b.shift_id = s.id AND b.worker_id = w.user_id AND b.status NOT IN ('removed','cancelled')) AS mine,
            EXISTS (SELECT 1 FROM notifications n WHERE n.shift_id = s.id AND n.user_id = w.user_id AND n.kind = 'shift_match') AS notified
     FROM workers w

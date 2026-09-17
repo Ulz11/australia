@@ -5,7 +5,7 @@
  * version someone agreed to (migration 008), so anyone who agreed to an older one can be asked again.
  * It is the date of the change, with ".2", ".3"… for further changes on the same day.
  */
-export const PRIVACY_VERSION = "2026-09-18";     // the phones you are signed in on, listed on your own Settings screen
+export const PRIVACY_VERSION = "2026-09-18.2";   // ".2": the usual week, and when you last opened the app
 
 /**
  * Who to contact about privacy. Read from the environment when the page is requested (never baked in at

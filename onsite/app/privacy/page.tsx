@@ -53,7 +53,7 @@ export default async function Privacy() {
         <h3 className="font-bold pt-2">If you are a worker</h3>
         <ul className="list-disc pl-6 space-y-1">
           <li><b>Where you live</b> — the place name you choose and a map pin kept to about a kilometre, not your exact spot — and how far you will travel, so we only offer shifts near you.</li>
-          <li>The days you mark free or busy.</li>
+          <li>The days you mark free or busy, and the <b>weekdays you say you are usually free</b>. We also keep <b>when you last opened OnSite</b>, so a usual week stops offering you to bosses after 14 quiet days.</li>
           <li>Your profile if you fill it in: <b>trades, languages, years of experience, a few words about you, and a photo</b>.</li>
           <li>Your <b>visa type</b>, if you give it.</li>
           <li>Your <b>licence and White Card details</b>: card type, <b>card number</b>, state, expiry date, the name on the card, and the result of any check.</li>

@@ -77,8 +77,10 @@ async function main() {
     const [u] = await sql`INSERT INTO users (phone, name, role, privacy_accepted_at, privacy_version, terms_accepted_at, terms_version)
                           VALUES (${P(n)}, ${name}, 'worker', now(), ${PRIVACY_VERSION}, now(), ${TERMS_VERSION}) RETURNING id`;
     uid[n] = u.id;
-    await sql`INSERT INTO workers (user_id, home, home_label, radius_km, tickets, visa_type, invite_code)
-      VALUES (${u.id}, ST_SetSRID(ST_MakePoint(${lng}, ${lat}),4326)::geography, ${sub}, ${radius}, ${tix}, ${visa}, ${"M" + String(n).slice(1) + "XK"})`;
+    // A usual week, as most of them would set: Monday to Friday. The 21 days of explicit answers below still
+    // beat it day by day; past those, worker_free() (migration 017) keeps them visible to bosses.
+    await sql`INSERT INTO workers (user_id, home, home_label, radius_km, tickets, visa_type, invite_code, usual_days)
+      VALUES (${u.id}, ST_SetSRID(ST_MakePoint(${lng}, ${lat}),4326)::geography, ${sub}, ${radius}, ${tix}, ${visa}, ${"M" + String(n).slice(1) + "XK"}, '{1,2,3,4,5}')`;
   }
   await sql`UPDATE workers SET invited_by = ${uid[101]} WHERE user_id IN (${uid[110]}, ${uid[114]})`;
 

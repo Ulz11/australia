@@ -3,33 +3,35 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "@/lib/nav";
 import { sql } from "@/lib/db";
 import { requireRole, createSession } from "@/lib/session";
-import { fmtDay, todayIso, addDays } from "@/lib/util";
+import { fmtDay } from "@/lib/util";
 import { bookWorker, recomputeTickets } from "@/lib/booking";
 import { sendAlertsSoon } from "@/lib/alerts";
 import { isUuid, isDay, num, isLatLng } from "@/lib/validate";
 import { pinFor } from "@/lib/place";
 
-export async function setAvailability(day: string, status: "free" | "busy") {
+/**
+ * One day, said out loud. 'free' and 'busy' write the row that beats the usual week; 'clear' takes the row
+ * away again, so the usual week (or plain busy) decides that day — the only way back out of an explicit answer.
+ */
+export async function setAvailability(day: string, status: "free" | "busy" | "clear") {
   const u = await requireRole("worker");
-  if (!isDay(day) || !["free", "busy"].includes(status)) return;
-  await sql`INSERT INTO availability (worker_id, day, status) VALUES (${u.id}, ${day}, ${status})
-            ON CONFLICT (worker_id, day) DO UPDATE SET status = EXCLUDED.status`;
+  if (!isDay(day) || !["free", "busy", "clear"].includes(status)) return;
+  await (status === "clear"
+    ? sql`DELETE FROM availability WHERE worker_id = ${u.id} AND day = ${day}`
+    : sql`INSERT INTO availability (worker_id, day, status) VALUES (${u.id}, ${day}, ${status})
+          ON CONFLICT (worker_id, day) DO UPDATE SET status = EXCLUDED.status`);
   revalidatePath("/worker");
 }
 
-/** Recurring pattern: mark weekdays (0=Sun..6=Sat) free for the next N weeks. */
-export async function setPattern(form: FormData) {
+/**
+ * "Your usual week": the weekdays this worker is normally free (ISO 1 = Mon … 7 = Sun). Nothing is written
+ * per day — worker_free() (migration 017) reads the pattern when a boss's shift asks, and an explicit answer
+ * for a day always beats it. An empty list means "ask me every day", which is how everyone started.
+ */
+export async function setUsualDays(days: number[]) {
   const u = await requireRole("worker");
-  const dows = form.getAll("dow").map(Number);
-  const weeks = 8;
-  const rows: { worker_id: string; day: string; status: string }[] = [];
-  const start = todayIso();                     // site-local today, not UTC
-  for (let i = 0; i < weeks * 7; i++) {
-    const day = addDays(start, i);
-    const dow = new Date(day + "T00:00:00Z").getUTCDay();
-    rows.push({ worker_id: u.id, day, status: dows.includes(dow) ? "free" : "busy" });
-  }
-  await sql`INSERT INTO availability ${sql(rows, "worker_id", "day", "status")} ON CONFLICT (worker_id, day) DO UPDATE SET status = EXCLUDED.status`;
+  const clean = [...new Set((days ?? []).map(Number).filter((d) => Number.isInteger(d) && d >= 1 && d <= 7))].sort();
+  await sql`UPDATE workers SET usual_days = ${clean}::smallint[] WHERE user_id = ${u.id}`;
   revalidatePath("/worker");
 }
 
