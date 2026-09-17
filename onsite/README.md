@@ -78,6 +78,7 @@ npm run test:watch
 - `tests/integration/session.test.ts` + `tests/unit/session.test.ts` — staying signed in: year-long tokens and cookie, the refresh route re-issuing a day-old session and leaving a fresh one alone, 401 + cleared cookie for a missing, forged, expired or deleted-user session, frame cookies never touched, the app's bearer refresh and sign-in `expires_at`, sign-out unchanged. `tests/unit/place.test.ts` + `tests/integration/home.test.ts` — "Use my location" logic: a home rounded to ~1 km on every path (and again by the server), labels from Nominatim answers, plain-word location errors.
 - `tests/integration/passkeys.test.ts` + `tests/unit/passkeys.test.ts` — Face ID / fingerprint sign-in through the real actions with a software passkey (`tests/helpers/softAuthenticator.ts`: an ES256 key, hand-built authenticator data, CBOR `none` attestation): registering stores the right row and excludes it next time; signing in sets the same session cookie and redirect as a code (boss, worker, onboarding with invite) and records counter and last use; a challenge works once and not after 5 minutes, and a registration challenge is nobody else's; wrong origin, wrong rpID, a challenge never issued, a tampered signature, a counter going backwards, no user verification, someone else's user handle all refused; two racing sign-ins with one counter, one gets in; a removed passkey refused in plain words; nobody removes another person's passkey; registering needs a signed-in user; the rate limits; fail-closed. Unit: rpID/origin derivation with override and fail-closed, device labels, and the passkey's account name never holding the full phone number.
 - `tests/integration/otp.test.ts` — login codes under attack: 40 parallel guesses spend exactly 5, a new code doesn't reset the count, 10 parallel sends send one, a code signs in once, foreign numbers refused.
+- `tests/integration/reminders.test.ts` — shift reminders: each kind fires exactly once across three overlapping passes, nothing before 6pm Sydney, the 60–80 minute window at both edges, a worker who pulled out and a called-off shift get nothing, one line per job with the orange flag only when spots are open, reminders never in `SMS_KINDS`, and every sentence on its own.
 - `tests/integration/alerts.test.ts` — alerts end to end against a local stand-in push service that decrypts what it receives: encrypted + VAPID-signed push, SMS fallback, urgent shifts pushed and texted, dead phones forgotten, 30-minute expiry, no double sends.
 - `tests/integration/privacy.test.ts` — a boss sees a worker's phone, never their visa type or card numbers (plus a source guard for boss screens).
 - `tests/unit/whitecard.test.ts` + `tests/unit/verify.test.ts` — the SafeWork NSW register against a stubbed API: token cached, renewed and shared, a failed login never poisoning the cache, 401 retried exactly once, every failure shape (400 included) ending as "couldn't check", a traffic card never passing as a White Card, no stranger's name in any answer, and the register's address fields never leaving the parser.
@@ -104,8 +105,9 @@ actions/boss.ts      post shift, approve hours, crew, pay, same-again, block…
 actions/worker.ts    usual week, one-day availability, take shift, clock in/out, disagree, profile
 app/boss/*           Projects · Post shift · Live shift · Workers · Pay · Me
 app/worker/*         Calendar · Explore (map/list) · Shift · Me (owed, invite)
-app/api/cron/expand  hit every 20 min → widens matching on stale open shifts, re-checks queued White Cards, sends any unsent alert
+app/api/cron/expand  hit every 20 min → widens matching on stale open shifts, re-checks queued White Cards, writes due shift reminders, sends any unsent alert
 lib/alerts.ts        notifications → web push (+ SMS for shift offers); public/sw.js shows them
+lib/reminders.ts     the evening-before and hour-before reminders the cron writes (push only, never SMS)
 lib/otp.ts           login code rules: crypto codes, hashed at rest, 5 wrong guesses an hour
 lib/passkeys.ts      Face ID / fingerprint sign-in: relying party, options, verification, labels (actions/passkeys.ts; browser half lib/passkeyClient.ts)
 lib/sms.ts           one text via ClickSend (or Twilio); never logs the number or the message
@@ -148,7 +150,7 @@ Live at **https://onsite-au.vercel.app** — Vercel project `onsite-beta`, root 
    | `OTP_SENDS_PER_HOUR`, `SMS_ALERTS_PER_HOUR`, `WHITECARD_CHECKS_PER_DAY` | beta limits — see below |
    | `DEMO_CONSOLE` | leave unset (ignored in production unless `DEMO_SITE=1`) |
 
-4. **Cron.** `vercel.json` calls `GET /api/cron/expand` every 20 minutes (production deployments only): widens matching, reconciles QPay, re-checks queued White Cards, and sends unsent alerts. Neon can sleep between runs.
+4. **Cron.** `vercel.json` calls `GET /api/cron/expand` every 20 minutes (production deployments only): widens matching, reconciles QPay, re-checks queued White Cards, writes the shift reminders that are due, and sends unsent alerts. Neon can sleep between runs.
 5. **Invites.** With `BETA_INVITE_ONLY=1`, only numbers on the guest list — or that already have an account — get a login code. Manage the list from your machine:
    `DATABASE_URL=<direct URL> npm run beta:invite -- 0412345678 [--role worker|boss] [--note "…"]`, `-- --list`, `-- --remove 0412345678`. Removing a number stops a new sign-up, not an existing account.
 
@@ -167,6 +169,19 @@ Fixed in code: 40 code requests an hour per connection, 5 codes an hour and 1 a 
 ## Phone alerts
 
 Every notification row is an outbox. After the tap that wrote it, `lib/alerts.ts` pushes it to each phone the person turned alerts on for (Me → Phone alerts, or the nudge on the home screen), and texts **shift offers** when no push landed or the shift starts within 3 hours. Anything unsent after 30 minutes is dropped — a stale "shift near you" is worse than none. The 20-minute cron is the backup sender, and a send that dies mid-way is retried after 2 minutes. Texts never carry words a boss typed (fixed wording plus the shift's date and time), each person gets at most 5 a day, one boss at most a fifth of `SMS_ALERTS_PER_HOUR` (default 500) so nobody can drain the budget and silence everyone else, and a boss can post at most 40 shifts an hour. A text is stamped the moment it lands, so a retry never buys a second one; a text the provider refused is retried, and any budget it charged is handed back so a refusal never eats someone's allowance. Texts go through ClickSend (`SMS_PROVIDER`, `CLICKSEND_USERNAME`, `CLICKSEND_API_KEY`, optional `CLICKSEND_FROM`; Twilio still works if chosen) and only count as sent when ClickSend accepts that message — `INSUFFICIENT_CREDIT`, an invalid recipient or an HTTP error is a failure. ClickSend says it pauses texts that contain links for new customers until approved, and shift-offer texts carry one when `NEXT_PUBLIC_BASE_URL` is set. With no SMS provider, `npm run dev` logs the message instead of sending it; a production build refuses to pretend — it logs that nothing was sent (never the message, which can be a login code) and the alert is retried until it expires. Signing out switches that phone's alerts off (the subscription is remembered in a cookie, so it works without JavaScript). Push needs `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`; only real push services (Google, Apple, Mozilla, Microsoft) are accepted as endpoints. On iPhone, alerts work once OnSite is added to the Home Screen (iOS 16.4+).
+
+## Shift reminders
+
+A worker who has taken a shift is reminded **the evening before** and again **an hour before it starts**; a boss is told the evening before what tomorrow looks like on each of their jobs. `lib/reminders.ts` writes them as ordinary notifications rows from the 20-minute cron, and `lib/alerts.ts` delivers them — **never as a text** (they are not in `SMS_KINDS`): a text is for a shift someone might otherwise miss out on, not for one they have already taken.
+
+- **Evening before** (the first cron pass at or after **18:00 Sydney**): one per accepted booking on tomorrow's shifts — *"Tomorrow 6:30am · Steel fixer at Parramatta Rd · 3.1 km from home"* (the distance only when the worker has set a home), opening My shift.
+- **Morning of** (the first pass **60–80 minutes** before the start): *"Starts in an hour · Parramatta Rd · Clock in when you're at the gate"*.
+- **The boss, evening before**: one per **job**, not per line of a job — *"Tomorrow 6:30am at Parramatta Rd · 3 of 3 booked"*, opening that job. When spots are still open the body leads with the gap (*"1 spot still open at Parramatta Rd tomorrow…"*) and the row is marked `urgent`, so it is the orange one.
+- **Idempotent under overlapping passes.** The cron lands whenever it lands, so each rule is a window wider than one 20-minute gap and `notif_reminder_once` (migration 018, on `(user_id, shift_id, kind)`) makes the second pass write nothing — the same trick as `notif_match_once`. "The first pass at or after 6pm" needs no memory of the last run. A booking that was cancelled, or a shift that was called off, gets nothing: the queries only look at bookings still `accepted` on shifts still `open` or `filled`.
+- Dates and hours are Sydney's (`AT TIME ZONE 'Australia/Sydney'`), never the server's.
+- **Migration 018** also adds `notifications.urgent`. Whether a boss's job was short of workers is a fact about the moment the row was written, not about delivery time, so the row carries it; `alertFor` reads it alongside the existing "shift starts within three hours" rule.
+- **Worker home** shows tomorrow's shift in a compact **dark** card at the very top, above the offers — the one thing worth more than the offers that evening. Information, not attention, so it is never orange.
+- On **iPhone**, alerts only work in OnSite added to the Home Screen, so the toggle now says so on any iPhone that isn't running as a home-screen app rather than waiting for the push APIs to be missing.
 
 ## Maps
 
@@ -315,4 +330,4 @@ It says only what the code does. Two places where that is worth knowing: **an ov
 
 ## Not in the MVP (on purpose)
 
-Ticket verification uploads, chat, ratings text, payroll/STP, admin dashboard, translations. All later.
+Ticket verification uploads, chat, ratings text, payroll/STP, admin dashboard. All later.

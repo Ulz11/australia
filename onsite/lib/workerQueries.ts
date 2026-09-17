@@ -75,9 +75,11 @@ export async function myBookings(workerId: string) {
            s.weather_stop, s.weather_note, s.ot_mode, s.ot_after_hours, s.ot_multiplier,
            (b.agreed_rate IS NOT NULL OR b.agreed_hours IS NOT NULL OR b.agreed_start IS NOT NULL) AS negotiated,
            p.name AS site, p.address, ST_Y(p.location::geometry) AS lat, ST_X(p.location::geometry) AS lng,
+           CASE WHEN w.home IS NULL THEN NULL ELSE ST_Distance(p.location, w.home)::int END AS dist_m,
            us.name AS boss_name, us.phone AS boss_phone, bo.company,
            (SELECT COUNT(*) FROM calls c WHERE c.booking_id = b.id)::int AS calls
     FROM bookings b JOIN shifts s ON s.id = b.shift_id JOIN projects p ON p.id = s.project_id
+    JOIN workers w ON w.user_id = b.worker_id
     JOIN users us ON us.id = s.boss_id JOIN bosses bo ON bo.user_id = s.boss_id
     WHERE b.worker_id = ${workerId} AND b.status NOT IN ('removed') ORDER BY s.day DESC, s.start_time`;
 }

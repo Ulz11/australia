@@ -4,6 +4,7 @@ import { reconcileOpenInvoices } from "@/lib/billing";
 import { closeBillingPeriods } from "@/lib/invoicing";
 import { qpayConfigured } from "@/lib/qpay";
 import { deliverAlerts } from "@/lib/alerts";
+import { remindShifts } from "@/lib/reminders";
 import { sweepRateLimits } from "@/lib/ratelimit";
 import { recheckLicences } from "@/lib/licenceRecheck";
 import { warmAudToMnt } from "@/lib/fxRate";
@@ -11,8 +12,8 @@ import { warmAudToMnt } from "@/lib/fxRate";
  *  Widens matching on shifts still open after 20 min, re-checks QPay invoices whose callback never landed,
  *  keeps today's AUD → MNT rate cached (asking the Bank of Mongolia only when the cached one is over 6 h old),
  *  ends the free trials that are up and closes the billing periods that are over (lib/invoicing.ts),
- *  asks the White Card register again about cards it couldn't answer for (at most 5 a run), and sends
- *  any alert a crash left unsent. */
+ *  asks the White Card register again about cards it couldn't answer for (at most 5 a run), writes the
+ *  shift reminders that are due (lib/reminders.ts), and sends any alert a crash left unsent. */
 export async function GET(req: Request) {
   const key = req.headers.get("authorization")?.replace("Bearer ", "") ?? new URL(req.url).searchParams.get("key") ?? "";
   const secret = process.env.CRON_SECRET;
@@ -39,6 +40,11 @@ export async function GET(req: Request) {
     console.error("licence re-check run failed", e?.code ?? e?.name ?? "error");
     return { error: "licence re-check failed" };
   });
+  // Reminders before the delivery below, so a shift reminder written this pass goes out in this pass.
+  const reminders = await remindShifts().catch((e) => {
+    console.error("reminders run failed", e?.code ?? e?.name ?? "error");
+    return { error: "reminders failed" };
+  });
   const alerts = await deliverAlerts().catch((e) => ({ error: String(e?.message ?? e) }));                  // last, so this round's offers and card results go too
-  return Response.json({ ...matching, ...(qpay ? { qpay } : {}), fx, billing, licences, alerts });
+  return Response.json({ ...matching, ...(qpay ? { qpay } : {}), fx, billing, licences, reminders, alerts });
 }

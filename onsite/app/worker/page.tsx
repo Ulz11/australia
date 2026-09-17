@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Clock, MapPin } from "lucide-react";
+import { CalendarClock, Clock, MapPin } from "lucide-react";
 import { sql } from "@/lib/db";
 import { requireRole } from "@/lib/session";
 import { Header, Page } from "@/components/Header";
@@ -7,7 +7,8 @@ import { Say, Section } from "@/components/ui";
 import { offersFor, openShiftsNear, myBookings } from "@/lib/workerQueries";
 import { Calendar } from "./Calendar";
 import { ShiftOffers } from "./ShiftOffers";
-import { fmtTime, todayIso } from "@/lib/util";
+import { addDays, fmtTime, todayIso } from "@/lib/util";
+import { nextShiftWords } from "@/lib/reminders";
 import { savedPushFingerprint } from "@/lib/alerts";
 import { AlertsToggle } from "@/components/AlertsToggle";
 export const dynamic = "force-dynamic";
@@ -34,6 +35,9 @@ export default async function WorkerHome() {
   const today = todayIso();
   const bookings = bookingsAll.filter((b) => ["accepted", "clocked_in", "clocked_out"].includes(b.status));
   const now = bookings.find((b) => b.day === today);
+  // Tomorrow's shift, at the top of the screen from the evening before. The one thing worth more than the
+  // offers below it that evening — and information, not something to act on, so it is dark and never orange.
+  const soon = bookings.find((b) => b.day === addDays(today, 1));
   const nowWords = now?.status === "clocked_in" ? "You're clocked in. Clock out when you finish."
     : now?.status === "clocked_out" ? "Done for the day. Your hours are with the boss."
     : "Clock in on the app when you get to the site.";
@@ -45,6 +49,15 @@ export default async function WorkerHome() {
         {!w.has_home && (
           <Link href="/worker/me/settings" className="block">
             <Say tone="orange" icon={MapPin} title="Tell us where you live" sub="Tap here. We only show shifts near you." />
+          </Link>
+        )}
+
+        {soon && (
+          <Link href="/worker/shift" className="say-dark block">
+            <div className="flex items-center gap-3">
+              <CalendarClock size={24} strokeWidth={2.25} aria-hidden className="shrink-0" />
+              <div className="say-title min-w-0 flex-1">{nextShiftWords({ day: soon.day, start_time: soon.start_time, site: soon.site, dist_m: soon.dist_m }, today)}</div>
+            </div>
           </Link>
         )}
 

@@ -26,7 +26,10 @@ import { hit, refund } from "./ratelimit";
  */
 
 export const ALERT_MAX_AGE_MIN = 30;
-/** Kinds worth a paid text when push can't carry them. Everything else is push-only. */
+/**
+ * Kinds worth a paid text when push can't carry them. Everything else is push-only — shift reminders included:
+ * a text is for a shift someone might otherwise miss out on, not for one they have already taken.
+ */
 export const SMS_KINDS: ReadonlySet<string> = new Set(["shift_match"]);
 export const SMS_PER_PERSON_PER_DAY = 5;
 const smsPerHour = () => Number(process.env.SMS_ALERTS_PER_HOUR) || 500;
@@ -46,13 +49,18 @@ const TITLES: Record<string, string> = {
   cancelled: "Shift cancelled", removed: "Taken off a shift", dispute: "Worker disagrees", weather: "Weather stop", test: "Alerts are on",
   licence_check: "Card checked",            // a White Card the register couldn't answer for at save time (lib/licenceRecheck.ts) — push only
   invoice_paid: "Invoice paid",             // QPay confirmed a boss's payment (lib/billing.ts) — push only
+  // Shift reminders, written by the cron (lib/reminders.ts) — push only, never a text.
+  reminder_eve: "Shift tomorrow", reminder_soon: "Starts in an hour", tomorrow: "Tomorrow on site",
 };
 
 export type Alert = { title: string; body: string; url: string; tag: string; urgent: boolean };
 
 /** What the phone shows, and where tapping it goes. Pure, so it's tested without a phone. */
-export function alertFor(n: { id: string; kind: string; body: string; shift_id: string | null; role: string | null; starts_soon?: boolean | null }): Alert {
-  const urgent = n.kind === "shift_match" && !!n.starts_soon;
+export function alertFor(n: { id: string; kind: string; body: string; shift_id: string | null; role: string | null; starts_soon?: boolean | null; urgent?: boolean | null }): Alert {
+  // Orange means "this needs you". A shift offer starting within three hours is worked out here from the shift;
+  // a boss's "tomorrow" reminder carries it on the row, because whether spots were still open is a fact about
+  // the moment it was written (lib/reminders.ts).
+  const urgent = !!n.urgent || (n.kind === "shift_match" && !!n.starts_soon);
   const boss = n.role === "boss";
   const url = boss
     ? n.kind === "offer" ? "/boss/offers" : n.kind === "invoice_paid" ? "/boss/billing" : n.shift_id ? `/boss/shifts/${n.shift_id}` : "/boss"
@@ -62,7 +70,8 @@ export function alertFor(n: { id: string; kind: string; body: string; shift_id: 
     : ["hours_approved", "paid", "test"].includes(n.kind) ? "/worker/me"
     : ["counter", "offer_accepted", "offer_declined"].includes(n.kind) ? "/worker/offers"
     : "/worker/shift";
-  return { title: urgent ? "Starts soon — shift near you" : TITLES[n.kind] ?? "OnSite", body: n.body, url, tag: `${n.kind}:${n.shift_id ?? n.id}`, urgent };
+  const title = n.kind === "shift_match" && urgent ? "Starts soon — shift near you" : TITLES[n.kind] ?? "OnSite";
+  return { title, body: n.body, url, tag: `${n.kind}:${n.shift_id ?? n.id}`, urgent };
 }
 
 /** Push endpoints are URLs we POST to, so only real push services are accepted (no SSRF into our network). */
@@ -105,7 +114,7 @@ export function sendAlertsSoon() {
   }
 }
 
-type Claimed = { id: string; user_id: string; shift_id: string | null; kind: string; body: string; role: string | null; phone: string; starts_soon: boolean | null; shift_when: string | null; boss_id: string | null; sms_at: string | null };
+type Claimed = { id: string; user_id: string; shift_id: string | null; kind: string; body: string; role: string | null; phone: string; starts_soon: boolean | null; shift_when: string | null; boss_id: string | null; sms_at: string | null; urgent: boolean };
 type Sub = { endpoint: string; user_id: string; p256dh: string; auth: string };
 
 export async function deliverAlerts(limit = 200): Promise<{ claimed: number; push: number; sms: number; expired: number; gone: number }> {
@@ -121,7 +130,7 @@ export async function deliverAlerts(limit = 200): Promise<{ claimed: number; pus
     )
     UPDATE notifications n SET sent_at = now() FROM c, users u
     WHERE n.id = c.id AND u.id = n.user_id
-    RETURNING n.id, n.user_id, n.shift_id, n.kind, n.body, u.role, u.phone, n.sms_at,
+    RETURNING n.id, n.user_id, n.shift_id, n.kind, n.body, u.role, u.phone, n.sms_at, n.urgent,
       (SELECT s.boss_id FROM shifts s WHERE s.id = n.shift_id) AS boss_id,
       (SELECT (s.day + s.start_time) BETWEEN now() AND now() + make_interval(hours => ${URGENT_HOURS}) FROM shifts s WHERE s.id = n.shift_id) AS starts_soon,
       (SELECT to_char(s.day, 'Dy DD Mon') || ', ' || lower(to_char(s.start_time, 'FMHH12:MIam')) FROM shifts s WHERE s.id = n.shift_id) AS shift_when`;

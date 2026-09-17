@@ -28,8 +28,11 @@ export function AlertsToggle({ publicKey, role, compact, savedPush }: { publicKe
     (async () => {
       const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
       const installed = window.matchMedia("(display-mode: standalone)").matches || (navigator as { standalone?: boolean }).standalone === true;
+      // On iPhone, alerts only work in OnSite added to the Home Screen. Say so before asking — some iOS
+      // versions expose the push APIs in a Safari tab and then refuse, which reads as the app being broken.
+      if (ios && !installed) return setState("ios-install");
       if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window))
-        return setState(ios && !installed ? "ios-install" : "unsupported");
+        return setState("unsupported");
       const reg = await navigator.serviceWorker.register("/sw.js");
       if (Notification.permission === "denied") return setState("blocked");
       const sub = await reg.pushManager.getSubscription();
@@ -97,6 +100,7 @@ export function AlertsToggle({ publicKey, role, compact, savedPush }: { publicKe
       {state === "blocked" && <p>Blocked in this browser's settings. Allow notifications for OnSite there, then come back.</p>}
       {state === "ios-install" && <p>On iPhone, alerts need OnSite on your Home Screen: tap Share, then <b>Add to Home Screen</b>, open it from there and turn alerts on.</p>}
       {state === "unsupported" && <p>This browser can't show alerts.{role === "worker" ? " We'll text you shift offers instead." : ""}</p>}
+      {role === "worker" && <p className="text-sm text-steel">Shift reminders: the evening before a shift and an hour before it starts.</p>}
       {state === "off" && <button onClick={turnOn} disabled={pending} className="btn-primary">{pending ? "Turning on…" : "Turn on alerts"}</button>}
       {state === "on" && (
         <div className="grid grid-cols-2 gap-2">
