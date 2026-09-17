@@ -14,7 +14,7 @@ describe("integration fixture phones", () => {
     for (const f of fs.readdirSync(dir).filter((n) => n.endsWith(".test.ts"))) {
       const src = fs.readFileSync(path.join(dir, f), "utf8");
       // 90xx–99xx were full, so billing took 88xx and paying invoices through QPay took 87xx: every block is checked.
-      for (const m of src.matchAll(/\+6140000[789]\d{3}\b/g)) {
+      for (const m of src.matchAll(/\+6140000[5-9]\d{3}\b/g)) {
         if (!owners.has(m[0])) owners.set(m[0], new Set());
         owners.get(m[0])!.add(f);
       }
