@@ -13,10 +13,12 @@
  * Dates that a person reads are Sydney dates (lib/util's TZ).
  *
  * Invoices are paid only through QPay, in tögrög from a Mongolian bank app. The one conversion — AUD cents
- * to whole tögrög at AUD_MNT_RATE, never a tögrög under — lives here too (audCentsToMnt).
+ * to whole tögrög at a rate per A$1, never a tögrög under — lives here too (audCentsToMnt). Where the rate
+ * comes from is lib/fxRate.ts.
  */
 import { TZ } from "./util";
 import { qpayConfigured } from "./qpay";
+import type { FxSource } from "./fxRate";
 
 /** The same loose shape lib/db.ts and lib/privacy.ts read the environment through. */
 type Env = Record<string, string | undefined>;
@@ -37,9 +39,9 @@ export const trialDays = (env?: Env) => intEnv("TRIAL_DAYS", 3, env);
 export const gstRegistered = (env: Env = process.env) => env.GST_REGISTERED === "1";
 
 /**
- * Tögrög per 1 AUD, from AUD_MNT_RATE (Mongolbank's official daily rate, e.g. 2250). Kept as the decimal text
- * it was set as, so the amount is worked out exactly. Null when unset or not a plain positive number — then
- * QPay payment is off rather than charging at a guessed rate.
+ * Tögrög per 1 AUD — per Australian dollar, never per US dollar — from AUD_MNT_RATE, e.g. 2560. The manual rate:
+ * lib/fxRate.ts uses it only when the live sources fail, or ahead of them with AUD_MNT_RATE_OVERRIDE=1. Kept as
+ * the decimal text it was set as. Null when unset or not a plain positive number.
  */
 export function audMntRate(env: Env = process.env): string | null {
   const raw = env.AUD_MNT_RATE?.trim();
@@ -63,20 +65,50 @@ export function audCentsToMnt(totalCents: number, rate: string): number {
   return Number((numerator + denominator - BigInt(1)) / denominator);
 }
 
-/** Invoices can be paid right now: QPay's credentials are set and so is the rate. Read at call time. */
-export const qpayPayable = (env: Env = process.env) => qpayConfigured() && audMntRate(env) !== null;
+/**
+ * Invoices can be paid through QPay: its credentials are set. Read at call time. The rate is looked up live when
+ * the boss taps Pay (lib/fxRate.ts), so a rate that is briefly unavailable says so on the tap rather than here.
+ */
+export const qpayPayable = () => qpayConfigured();
 
 /** "₮72,000" — whole tögrög with thousands separators. */
 export const tugrik = (mnt: number | string) => "₮" + Math.round(Number(mnt)).toLocaleString("en-AU");
 
-/** "≈ ₮72,000 at ₮2,250 per $1" — the tögrög amount beside the AUD total it came from. */
-export const mntWords = (mnt: number | string, rate: string) =>
-  `≈ ${tugrik(mnt)} at ₮${Number(rate).toLocaleString("en-AU", { maximumFractionDigits: 6 })} per $1`;
+/** "A$33.00" — where the tögrög sit beside it, the dollars are said to be Australian. */
+export const audMoney = (cents: number) => "A" + money(cents);
+
+/** The rate a tögrög amount was worked out at, and where it came from. Source and day are null on a QR raised before they were kept. */
+export type RateUsed = { rate: number | string; source: FxSource | null; asOf: string | null };
+
+/** "17 Sept" — the day a rate is for (a plain date, so read as written, not moved into another time zone). */
+export const fmtRateDay = (asOf: string) =>
+  new Date(`${asOf}T00:00:00Z`).toLocaleDateString("en-AU", { day: "numeric", month: "short", timeZone: "UTC" });
+
+/** "Bank of Mongolia rate for 17 Sept: ₮2,559.03 per A$1" */
+export function rateWords(r: RateUsed): string {
+  const n = Number(r.rate);
+  const per = `₮${n.toLocaleString("en-AU", { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 6 })} per A$1`;
+  if (r.source === "mongolbank" && r.asOf) return `Bank of Mongolia rate for ${fmtRateDay(r.asOf)}: ${per}`;
+  if (r.source === "fallback" && r.asOf) return `ExchangeRate-API rate for ${fmtRateDay(r.asOf)}: ${per}`;
+  if (r.source === "env") return `Rate set by OnSite: ${per}`;
+  return `at ${per}`;
+}
+
+/** "≈ ₮77,550 · Bank of Mongolia rate for 17 Sept: ₮2,350 per A$1" — the tögrög amount beside the A$ total it came from. */
+export const mntWords = (mnt: number | string, r: RateUsed) => {
+  const words = rateWords(r);
+  return `≈ ${tugrik(mnt)}${words.startsWith("at ") ? " " : " · "}${words}`;
+};
+
+/** When no live rate can be had at the tap (lib/fxRate.ts returned null). */
+export const FX_UNAVAILABLE = "Couldn't get today's exchange rate — try again in a few minutes.";
+/** Where the Pay button would show the tögrög amount, before any rate is known. */
+export const FX_AT_TAP = "The tögrög amount is worked out at today's exchange rate when you tap.";
 
 /** What QPay shows the payer. The invoice number and nothing else — no names, no ABN. */
 export const qpayDescription = (number: string) => `OnSite invoice ${number}`;
 
-/** An open invoice when QPay can't take the payment: no rate, or no credentials. Never invents bank details. */
+/** An open invoice when QPay can't take the payment: its credentials aren't set. Never invents bank details. */
 export const QPAY_NOT_SET_UP = "Payment by QPay isn't set up yet — we'll send you payment details.";
 /** Under the QR and the bank buttons. */
 export const QPAY_HOW_TO = "Pay in your bank app. This page updates by itself once QPay confirms it.";

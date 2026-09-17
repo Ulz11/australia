@@ -5,6 +5,10 @@
  *
  * Everyone here is ours alone: +614000087xx. Invoices are numbered OS-2099-0087xx so they can't meet a real
  * year's count. Self-cleaning — including the qpay_invoices rows, which outlive a deleted user.
+ *
+ * The rate here is always AUD_MNT_RATE with AUD_MNT_RATE_OVERRIDE=1, so nothing in this file reads or writes the
+ * shared rate cache (fx_rates) or asks a rate source: the live rate, its cache and the page's estimate from it are
+ * tests/integration/fxRate.test.ts, the one file that owns that table.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from "vitest";
 import { randomUUID } from "node:crypto";
@@ -14,13 +18,14 @@ import { callbackSig, resetQpayToken, type QpayPaymentRow } from "@/lib/qpay";
 import { reconcileOpenInvoices } from "@/lib/billing";
 import { markInvoicePaid } from "@/lib/invoicing";
 import { QPAY_HOW_TO, QPAY_NOT_SET_UP } from "@/lib/subscription";
+import { todayIso } from "@/lib/util";
 import Invoice from "@/app/boss/billing/[number]/page";
 import { GET as status } from "@/app/boss/billing/[number]/status/route";
 import { GET as callback } from "@/app/api/qpay/callback/[invoice]/[sig]/route";
 
 const PHONES = { boss: "+61400008701", other: "+61400008702" };
 const EVERYONE = Object.values(PHONES);
-const NUMBERS = { a: "OS-2099-008701", b: "OS-2099-008702", c: "OS-2099-008703", d: "OS-2099-008704", e: "OS-2099-008705", f: "OS-2099-008706" };
+const NUMBERS = { a: "OS-2099-008701", b: "OS-2099-008702", c: "OS-2099-008703", d: "OS-2099-008704", e: "OS-2099-008705", f: "OS-2099-008706", g: "OS-2099-008707" };
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -63,6 +68,7 @@ function qpayOn() {
   vi.stubEnv("QPAY_CALLBACK_SECRET", "test-callback-secret");
   vi.stubEnv("NEXT_PUBLIC_BASE_URL", "https://onsite.test");
   vi.stubEnv("AUD_MNT_RATE", "2250");
+  vi.stubEnv("AUD_MNT_RATE_OVERRIDE", "1");
 }
 
 // ───────────────────────────────────────────────────────────── helpers
@@ -72,9 +78,15 @@ const tap = (number: string) => billing.payWithQpay({ error: null }, fd({ number
 const created = () => calls.filter((c) => c.method === "POST" && c.path === "/invoice");
 const checks = () => calls.filter((c) => c.path === "/payment/check");
 
-type InvoiceNow = { status: string; paid_at: Date | null; paid_note: string | null; qpay_sender_invoice_no: string | null; qpay_amount_mnt: string | null; qpay_rate: string | null; qpay_claimed_at: Date | null };
+type InvoiceNow = {
+  status: string; paid_at: Date | null; paid_note: string | null; qpay_sender_invoice_no: string | null; qpay_amount_mnt: string | null;
+  qpay_rate: string | null; qpay_rate_source: string | null; qpay_rate_as_of: string | null; qpay_raised_on: string | null; qpay_claimed_at: Date | null;
+};
 const invoice = async (number: string) => (await sql<InvoiceNow[]>`
-  SELECT status, paid_at, paid_note, qpay_sender_invoice_no, qpay_amount_mnt, qpay_rate, qpay_claimed_at FROM invoices WHERE number = ${number}`)[0];
+  SELECT status, paid_at, paid_note, qpay_sender_invoice_no, qpay_amount_mnt, qpay_rate, qpay_rate_source, qpay_rate_as_of, qpay_raised_on, qpay_claimed_at
+  FROM invoices WHERE number = ${number}`)[0];
+/** Pretend the linked QR was raised on the Sydney day before today. */
+const raisedYesterday = (number: string) => sql`UPDATE invoices SET qpay_raised_on = qpay_raised_on - 1 WHERE number = ${number}`;
 type QpayNow = { status: string; purpose: string; qpay_invoice_id: string; amount_mnt: number; paid_amount_mnt: number | null; payment_id: string | null; qr: { qr_image: string; short_url: string | null; urls: { name: string; logo: string | null; link: string }[] } | null };
 const qpayRow = async (sender: string) => (await sql<QpayNow[]>`
   SELECT status, purpose, qpay_invoice_id, amount_mnt, paid_amount_mnt, payment_id, qr FROM qpay_invoices WHERE sender_invoice_no = ${sender}`)[0];
@@ -131,7 +143,7 @@ describe.skipIf(!process.env.DATABASE_URL)("paying an invoice through QPay", () 
       await sql`INSERT INTO bosses (user_id, company, abn, trial_ends_at, period_started_at, period_ends_at)
                 VALUES (${ids[key]}, ${`QPay ${key} Pty Ltd`}, '11222333444', now() + interval '3 days', now() + interval '3 days', now() + interval '33 days')`;
     }
-    const cents: Record<keyof typeof NUMBERS, number> = { a: 3300, b: 3300, c: 200, d: 3500, e: 3300, f: 3300 };
+    const cents: Record<keyof typeof NUMBERS, number> = { a: 3300, b: 3300, c: 200, d: 3500, e: 3300, f: 3300, g: 3300 };
     let n = 0;
     for (const [key, number] of Object.entries(NUMBERS) as [keyof typeof NUMBERS, string][]) {
       const start = new Date(Date.now() - (60 + ++n) * DAY);
@@ -154,11 +166,11 @@ describe.skipIf(!process.env.DATABASE_URL)("paying an invoice through QPay", () 
   });
   afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
-  it("has no Pay button, and raises nothing, until QPay has both its credentials and a rate", async () => {
+  it("has no Pay button, and raises nothing, until QPay has its credentials", async () => {
     as(ids.boss);
-    for (const [name, value] of [["AUD_MNT_RATE", ""], ["QPAY_USERNAME", ""], ["AUD_MNT_RATE", "not a rate"]] as const) {
+    for (const name of ["QPAY_USERNAME", "QPAY_INVOICE_CODE"]) {
       qpayOn();
-      vi.stubEnv(name, value);
+      vi.stubEnv(name, "");
       const page = await render(NUMBERS.a);
       expect(page.parts, name).not.toContain("PayWithQpay");
       expect(page.parts, name).not.toContain("QpayWatch");
@@ -171,7 +183,7 @@ describe.skipIf(!process.env.DATABASE_URL)("paying an invoice through QPay", () 
     qpayOn();
     const page = await render(NUMBERS.a);
     expect(page.parts).toContain("PayWithQpay");
-    expect(page.text).toContain("≈ ₮74,250 at ₮2,250 per $1");
+    expect(page.text).toEqual(expect.arrayContaining(["A$33.00", "≈ ₮74,250 · Rate set by OnSite: ₮2,250 per A$1"]));
     expect(page.all).not.toContain(QPAY_NOT_SET_UP);
     expect(calls).toEqual([]);                                             // showing the page never talks to QPay
   });
@@ -196,7 +208,7 @@ describe.skipIf(!process.env.DATABASE_URL)("paying an invoice through QPay", () 
     expect(String(body.callback_url)).toMatch(/^https:\/\/onsite\.test\/api\/qpay\/callback\/OS-[\w-]+\/[0-9a-f]{32}$/);
 
     const inv = await invoice(NUMBERS.a);
-    expect(inv).toMatchObject({ status: "open", qpay_rate: "2250", qpay_claimed_at: null });
+    expect(inv).toMatchObject({ status: "open", qpay_rate: "2250", qpay_rate_source: "env", qpay_rate_as_of: todayIso(), qpay_raised_on: todayIso(), qpay_claimed_at: null });
     expect(Number(inv.qpay_amount_mnt)).toBe(74250);
     expect(await qpayRow(inv.qpay_sender_invoice_no!)).toMatchObject({ status: "open", purpose: "onsite_invoice", amount_mnt: 74250 });
     expect((await sql`SELECT 1 FROM qpay_invoices WHERE user_id = ${ids.boss}`).length).toBe(1);
@@ -205,22 +217,36 @@ describe.skipIf(!process.env.DATABASE_URL)("paying an invoice through QPay", () 
     expect(page.parts).toContain("QpayWatch");
     expect(page.parts).not.toContain("PayWithQpay");
     expect(page.text).toEqual(expect.arrayContaining([
-      "$33.00", "≈ ₮74,250 at ₮2,250 per $1", QPAY_HOW_TO, "Khan bank", `data:image/png;base64,${PNG}`,
+      "$33.00", "A$33.00", "≈ ₮74,250 · Rate set by OnSite: ₮2,250 per A$1", QPAY_HOW_TO, "Khan bank", `data:image/png;base64,${PNG}`,
     ]));
     expect(page.text.some((t) => t.startsWith("khanbank://q?qPay_QRcode="))).toBe(true);
     expect(page.text.some((t) => t.startsWith("https://s.qpay.mn/"))).toBe(true);
   });
 
-  it("reuses the QR while the rate gives the same tögrög, and cancels and replaces it when the rate moves", async () => {
+  it("reuses the QR all day even after the rate moves, and cancels and replaces it at the new rate on a new day", async () => {
     as(ids.boss);
     const before = await invoice(NUMBERS.a);
     expect(await tap(NUMBERS.a)).toEqual({ error: null });
     expect(calls).toEqual([]);                                             // QPay isn't asked anything at all
     expect((await invoice(NUMBERS.a)).qpay_sender_invoice_no).toBe(before.qpay_sender_invoice_no);
 
+    // Same day, new rate: the QR the boss may already have open in the bank app stays, at the rate it was raised at.
     vi.stubEnv("AUD_MNT_RATE", "2300");
+    const sameDay = await render(NUMBERS.a);
+    expect(sameDay.parts).toContain("QpayWatch");
+    expect(sameDay.parts).not.toContain("PayWithQpay");
+    expect(sameDay.text).toContain("≈ ₮74,250 · Rate set by OnSite: ₮2,250 per A$1");
+    expect(await tap(NUMBERS.a)).toEqual({ error: null });
+    expect(calls).toEqual([]);
+    expect(await invoice(NUMBERS.a)).toMatchObject({ qpay_sender_invoice_no: before.qpay_sender_invoice_no, qpay_rate: "2250" });
+
+    // The next day it is replaced, at that day's rate.
+    await raisedYesterday(NUMBERS.a);
     const old = await qpayRow(before.qpay_sender_invoice_no!);
-    expect((await render(NUMBERS.a)).parts).toContain("PayWithQpay");       // the old QR isn't shown at a rate it doesn't match
+    const nextDay = await render(NUMBERS.a);
+    expect(nextDay.parts).toEqual(expect.arrayContaining(["PayWithQpay", "QpayWatch"]));   // yesterday's QR isn't shown, but is still watched
+    expect(nextDay.text).toContain("≈ ₮75,900 · Rate set by OnSite: ₮2,300 per A$1");
+    expect(calls).toEqual([]);
     expect(await tap(NUMBERS.a)).toEqual({ error: null });
     // cancelled first, checked for money second (a cancelled invoice can't take any), and only then a new one
     expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(["POST /auth/token", `DELETE /invoice/${old.qpay_invoice_id}`, "POST /payment/check", "POST /invoice"]);
@@ -229,7 +255,7 @@ describe.skipIf(!process.env.DATABASE_URL)("paying an invoice through QPay", () 
 
     const after = await invoice(NUMBERS.a);
     expect(after.qpay_sender_invoice_no).not.toBe(before.qpay_sender_invoice_no);
-    expect(after).toMatchObject({ qpay_rate: "2300", status: "open" });
+    expect(after).toMatchObject({ qpay_rate: "2300", status: "open", qpay_raised_on: todayIso() });
     expect(Number(after.qpay_amount_mnt)).toBe(75900);
     expect(await qpayRow(before.qpay_sender_invoice_no!)).toMatchObject({ status: "cancelled", qr: null });
     expect(await qpayRow(after.qpay_sender_invoice_no!)).toMatchObject({ status: "open", amount_mnt: 75900 });
@@ -311,7 +337,7 @@ describe.skipIf(!process.env.DATABASE_URL)("paying an invoice through QPay", () 
     expect(await told(ids.boss, NUMBERS.d)).toHaveLength(1);
   });
 
-  it("settles a QR that was paid just before the rate moved, rather than raising a second one beside it", async () => {
+  it("settles yesterday's QR that was paid after all, rather than raising a second one beside it", async () => {
     as(ids.boss);
     expect(await tap(NUMBERS.e)).toEqual({ error: null });
     const { qpay_sender_invoice_no: sender } = await invoice(NUMBERS.e);
@@ -319,11 +345,35 @@ describe.skipIf(!process.env.DATABASE_URL)("paying an invoice through QPay", () 
     paidRows[q.qpay_invoice_id] = paidInFull(q, "PAY-8705");
 
     vi.stubEnv("AUD_MNT_RATE", "2400");
+    await raisedYesterday(NUMBERS.e);
     calls = [];
     expect(await tap(NUMBERS.e)).toEqual({ error: null });
     expect(created()).toHaveLength(0);
     expect(await invoice(NUMBERS.e)).toMatchObject({ status: "paid", paid_note: "QPay payment PAY-8705", qpay_sender_invoice_no: sender });
     expect(await told(ids.boss, NUMBERS.e)).toHaveLength(1);
+  });
+
+  it("replaces a QR the same day when the invoice's A$ total no longer matches it", async () => {
+    as(ids.boss);
+    expect(await tap(NUMBERS.g)).toEqual({ error: null });
+    const before = await invoice(NUMBERS.g);
+    expect(Number(before.qpay_amount_mnt)).toBe(74250);
+
+    await sql`UPDATE invoices SET total_cents = 3500, subtotal_cents = 3500 WHERE number = ${NUMBERS.g}`;   // corrected by hand
+    const page = await render(NUMBERS.g);
+    expect(page.parts).toContain("PayWithQpay");                           // the old QR asks for the old total: not shown
+    expect(page.text).toContain("≈ ₮78,750 · Rate set by OnSite: ₮2,250 per A$1");
+    calls = [];
+    expect(await tap(NUMBERS.g)).toEqual({ error: null });
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([`DELETE /invoice/${(await qpayRow(before.qpay_sender_invoice_no!)).qpay_invoice_id}`, "POST /payment/check", "POST /invoice"]);
+    expect(created()[0].body).toMatchObject({ amount: 78750 });
+    const after = await invoice(NUMBERS.g);
+    expect(after.qpay_sender_invoice_no).not.toBe(before.qpay_sender_invoice_no);
+    expect(await qpayRow(before.qpay_sender_invoice_no!)).toMatchObject({ status: "cancelled" });
+
+    calls = [];
+    expect(await tap(NUMBERS.g)).toEqual({ error: null });                  // and the new one is reused
+    expect(calls).toEqual([]);
   });
 
   it("still lets a person mark one paid by hand — and says a QPay invoice is still open for it", async () => {

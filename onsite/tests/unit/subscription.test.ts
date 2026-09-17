@@ -5,9 +5,9 @@
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
-  QPAY_NOT_SET_UP, addMonths, audCentsToMnt, audMntRate, billingBusiness, demoBillingWords, dueDateFor,
-  fmtBillingDay, fmtInvoiceDay, gstRegistered, invoiceNumber, invoicePaidWords, isInvoiceNumber, isOverdue,
-  matchFeeCents, mntWords, money, periodSoFar, priceWords, qpayDescription, qpayPayable, splitGst,
+  FX_UNAVAILABLE, QPAY_NOT_SET_UP, addMonths, audCentsToMnt, audMntRate, audMoney, billingBusiness, demoBillingWords, dueDateFor,
+  fmtBillingDay, fmtInvoiceDay, fmtRateDay, gstRegistered, invoiceNumber, invoicePaidWords, isInvoiceNumber, isOverdue,
+  matchFeeCents, mntWords, money, periodSoFar, priceWords, qpayDescription, qpayPayable, rateWords, splitGst,
   statusWords, subscriptionCents, trialDays, trialEndFrom, tugrik, upsellWords,
 } from "@/lib/subscription";
 import { parseArgs } from "@/scripts/billing";
@@ -191,11 +191,20 @@ describe("paying through QPay — the tögrög amount", () => {
       expect(audMntRate({ AUD_MNT_RATE: bad }), String(bad)).toBeNull();
   });
 
-  it("writes tögrög with thousands separators, beside the rate it came from", () => {
+  it("writes tögrög with thousands separators, beside the rate per Australian dollar and where it came from", () => {
     expect(tugrik(72000)).toBe("₮72,000");
     expect(tugrik("1234567")).toBe("₮1,234,567");
-    expect(mntWords(72000, "2250")).toBe("≈ ₮72,000 at ₮2,250 per $1");
-    expect(mntWords(74862, "2268.54")).toBe("≈ ₮74,862 at ₮2,268.54 per $1");
+    expect(audMoney(3300)).toBe("A$33.00");
+    expect(fmtRateDay("2026-09-17")).toBe("17 Sept");
+    expect(mntWords(77550, { rate: 2350, source: "mongolbank", asOf: "2026-09-17" }))
+      .toBe("≈ ₮77,550 · Bank of Mongolia rate for 17 Sept: ₮2,350 per A$1");
+    expect(mntWords(84448, { rate: "2559.03", source: "mongolbank", asOf: "2026-09-17" }))
+      .toBe("≈ ₮84,448 · Bank of Mongolia rate for 17 Sept: ₮2,559.03 per A$1");
+    expect(rateWords({ rate: 2570.3, source: "fallback", asOf: "2026-09-17" })).toBe("ExchangeRate-API rate for 17 Sept: ₮2,570.30 per A$1");
+    expect(rateWords({ rate: "2268.54", source: "env", asOf: "2026-09-18" })).toBe("Rate set by OnSite: ₮2,268.54 per A$1");
+    // a QR raised before the source and day were kept
+    expect(mntWords(72000, { rate: "2250", source: null, asOf: null })).toBe("≈ ₮72,000 at ₮2,250 per A$1");
+    expect(FX_UNAVAILABLE).toBe("Couldn't get today's exchange rate — try again in a few minutes.");
   });
 
   it("tells QPay the invoice number and nothing else", () => {
@@ -205,13 +214,11 @@ describe("paying through QPay — the tögrög amount", () => {
 });
 
 describe("what an invoice says about paying it", () => {
-  it("offers QPay only with both the credentials and a rate — and never invents bank details without them", () => {
+  it("offers QPay whenever its credentials are set — the rate is looked up at the tap — and never invents bank details without them", () => {
     const creds = () => { vi.stubEnv("QPAY_USERNAME", "u"); vi.stubEnv("QPAY_PASSWORD", "p"); vi.stubEnv("QPAY_INVOICE_CODE", "c"); };
     creds();
-    vi.stubEnv("AUD_MNT_RATE", "2250");
-    expect(qpayPayable()).toBe(true);
     vi.stubEnv("AUD_MNT_RATE", "");
-    expect(qpayPayable()).toBe(false);                               // no rate
+    expect(qpayPayable()).toBe(true);                                // no manual rate needed any more
     vi.stubEnv("AUD_MNT_RATE", "2250");
     vi.stubEnv("QPAY_INVOICE_CODE", "");
     expect(qpayPayable()).toBe(false);                               // no QPay
@@ -237,10 +244,9 @@ describe("what an invoice says about paying it", () => {
     expect(demoBillingWords(true)).toBe("This is a demo, but paying an invoice here sends real money through QPay.");
 
     vi.stubEnv("DEMO_SITE", "1");
-    vi.stubEnv("QPAY_USERNAME", "u"); vi.stubEnv("QPAY_PASSWORD", "p"); vi.stubEnv("QPAY_INVOICE_CODE", "c");
-    vi.stubEnv("AUD_MNT_RATE", "");
+    vi.stubEnv("QPAY_USERNAME", "u"); vi.stubEnv("QPAY_PASSWORD", "p"); vi.stubEnv("QPAY_INVOICE_CODE", "");
     expect(text(DemoBillingNote())).toBe(demoBillingWords(false));
-    vi.stubEnv("AUD_MNT_RATE", "2250");
+    vi.stubEnv("QPAY_INVOICE_CODE", "c");
     expect(text(DemoBillingNote())).toBe(demoBillingWords(true));
     vi.stubEnv("DEMO_SITE", "");
     expect(DemoBillingNote()).toBeNull();                            // not a demo: no line at all

@@ -37,6 +37,8 @@ export type InvoiceRow = {
   status: "open" | "paid" | "void"; paid_at: string | null; paid_note: string | null;
   /** The QPay invoice that can pay this one (migration 011), the whole tögrög it asks for, and the rate it was raised at. */
   qpay_sender_invoice_no: string | null; qpay_amount_mnt: string | number | null; qpay_rate: string | null;
+  /** Where that rate came from, the day it is for, and the Sydney day the QPay invoice was raised (migration 012). */
+  qpay_rate_source: "mongolbank" | "fallback" | "env" | null; qpay_rate_as_of: string | null; qpay_raised_on: string | null;
   qpay_claimed_at: string | null;
 };
 

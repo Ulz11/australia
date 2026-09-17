@@ -10,7 +10,7 @@ import { QpayWatch } from "./QpayWatch";
 import { bossBilling, invoiceWithLines, type InvoiceRow } from "@/lib/invoicing";
 import { invoicePayState, type InvoicePayState } from "@/lib/invoiceQpay";
 import {
-  QPAY_HOW_TO, QPAY_NOT_SET_UP, billingBusiness, fmtInvoiceDay, gstRegistered, isInvoiceNumber, isOverdue, mntWords, money,
+  FX_AT_TAP, QPAY_HOW_TO, QPAY_NOT_SET_UP, audMoney, billingBusiness, fmtInvoiceDay, gstRegistered, isInvoiceNumber, isOverdue, mntWords, money,
 } from "@/lib/subscription";
 export const dynamic = "force-dynamic";
 
@@ -104,6 +104,7 @@ function OpenInvoice({ invoice, pay }: { invoice: InvoiceRow; pay: InvoicePaySta
     title={overdue ? `Overdue — was due ${fmtInvoiceDay(invoice.due_at)}` : `Due ${fmtInvoiceDay(invoice.due_at)}`}
     sub={pay.kind === "unavailable" ? QPAY_NOT_SET_UP : undefined} />;
   if (pay.kind !== "button" && pay.kind !== "qr") return due;
+  const { quote } = pay;
 
   return (
     <>
@@ -111,14 +112,20 @@ function OpenInvoice({ invoice, pay }: { invoice: InvoiceRow; pay: InvoicePaySta
       <section className="card space-y-4" aria-labelledby="pay-qpay">
         <div>
           <div id="pay-qpay" className="label">Pay with QPay</div>
-          <div className="text-3xl font-extrabold num leading-tight">{money(invoice.total_cents)}</div>
-          <div className="text-lg num">{mntWords(pay.amountMnt, pay.rate)}</div>
+          <div className="text-3xl font-extrabold num leading-tight">{audMoney(invoice.total_cents)}</div>
+          {quote
+            ? <div className="text-lg num">{mntWords(quote.amountMnt, quote)}</div>
+            : <div className="text-lg">{FX_AT_TAP}</div>}
+          {/* ExchangeRate-API's open endpoint asks for this link wherever its rates are shown. */}
+          {quote?.source === "fallback" && (
+            <a href="https://www.exchangerate-api.com" target="_blank" rel="noopener noreferrer" className="text-sm text-steel underline">Rates By Exchange Rate API</a>
+          )}
         </div>
 
         {pay.kind === "button"
           ? <>
               <PayWithQpay number={invoice.number} />
-              <p className="text-steel text-base">You pay in tögrög from your Mongolian bank app. We&apos;ll show a QR code and a button for your bank.</p>
+              <p className="text-steel text-base">This invoice is in Australian dollars. You pay it in tögrög from your Mongolian bank app — we&apos;ll show a QR code and a button for your bank.</p>
               {pay.watch && <QpayWatch number={invoice.number} />}
             </>
           : <>
