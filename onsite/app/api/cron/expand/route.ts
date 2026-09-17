@@ -6,8 +6,10 @@ import { qpayConfigured } from "@/lib/qpay";
 import { deliverAlerts } from "@/lib/alerts";
 import { sweepRateLimits } from "@/lib/ratelimit";
 import { recheckLicences } from "@/lib/licenceRecheck";
+import { warmAudToMnt } from "@/lib/fxRate";
 /** Vercel Cron hits this every 20 minutes (vercel.json). Neon sleeps after 5 idle minutes, so it can sleep between runs.
  *  Widens matching on shifts still open after 20 min, re-checks QPay invoices whose callback never landed,
+ *  keeps today's AUD → MNT rate cached (asking the Bank of Mongolia only when the cached one is over 6 h old),
  *  ends the free trials that are up and closes the billing periods that are over (lib/invoicing.ts),
  *  asks the White Card register again about cards it couldn't answer for (at most 5 a run), and sends
  *  any alert a crash left unsent. */
@@ -17,10 +19,14 @@ export async function GET(req: Request) {
   if (!secret) return new Response("CRON_SECRET not set", { status: 503 });
   const a = Buffer.from(key), b = Buffer.from(secret);
   if (a.length !== b.length || !timingSafeEqual(a, b)) return new Response("nope", { status: 401 });
-  const [matching, qpay] = await Promise.all([
+  const [matching, qpay, , fx] = await Promise.all([
     expandStaleShifts(),
     qpayConfigured() ? reconcileOpenInvoices().catch((e) => ({ error: String(e?.message ?? e) })) : null,   // billing trouble never stops matching
     sweepRateLimits().catch(() => null),
+    // Warmed so a boss's tap finds a fresh rate. Where it came from and its day only — never the error text.
+    (qpayConfigured() ? warmAudToMnt() : Promise.resolve(null))
+      .then((q) => ({ source: q?.source ?? null, as_of: q?.asOf ?? null }))
+      .catch((e) => { console.error("fx warm failed", e?.name ?? "error"); return { error: "fx failed" }; }),
   ]);
   // Ends the trials that are up and closes the periods that are over — on its own, after matching, so a
   // billing fault can never stop a shift being filled. Counts only, never a boss id.
@@ -34,5 +40,5 @@ export async function GET(req: Request) {
     return { error: "licence re-check failed" };
   });
   const alerts = await deliverAlerts().catch((e) => ({ error: String(e?.message ?? e) }));                  // last, so this round's offers and card results go too
-  return Response.json({ ...matching, ...(qpay ? { qpay } : {}), billing, licences, alerts });
+  return Response.json({ ...matching, ...(qpay ? { qpay } : {}), fx, billing, licences, alerts });
 }
