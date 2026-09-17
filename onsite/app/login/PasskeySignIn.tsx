@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { ScanFace } from "lucide-react";
 import { WebAuthnAbortService, sendSignal, startAuthentication, type AuthenticationResponseJSON, type PublicKeyCredentialRequestOptionsJSON } from "@simplewebauthn/browser";
 import { passkeyLoginOptions, passkeySignIn } from "@/actions/passkeys";
+import { useT } from "@/components/Lang";
 import { OPTIONS_FRESH_MS, PASSKEY_WORDS, canAutofillPasskey, canSignInWithPasskey, ceremonyEnd, forgetHere, rememberHere } from "@/lib/passkeyClient";
 
 type Msg = { text: string; warn: boolean } | null;
@@ -29,6 +30,9 @@ export function PasskeySignIn({ origin, rpID, invite, autofill, onAutofill }: {
   const [leaving, setLeaving] = useState(false);
   const [pending, start] = useTransition();
   const router = useRouter();
+  // The words for every way this can end live in lib/passkeyClient; the reason picks one and t() says it in
+  // whatever language the login screen is in.
+  const t = useT();
   /** Only touched from effects and taps. `modal`: the button's prompt is up, so autofill must not cancel it. */
   const s = useRef({ options: null as PublicKeyCredentialRequestOptionsJSON | null, at: 0, alive: false, modal: false, autofill: false });
 
@@ -39,7 +43,7 @@ export function PasskeySignIn({ origin, rpID, invite, autofill, onAutofill }: {
     s.current.options = null;
     const r = await passkeyLoginOptions().catch(() => null);
     if (!s.current.alive) return null;
-    if (!r?.ok) { if (loud) setMsg({ text: r?.error ?? PASSKEY_WORDS.failed, warn: true }); return null; }
+    if (!r?.ok) { if (loud) setMsg({ text: t(PASSKEY_WORDS[r?.reason ?? "failed"]), warn: true }); return null; }
     Object.assign(s.current, { options: r.options, at: Date.now() });
     return r.options;
   }
@@ -72,7 +76,7 @@ export function PasskeySignIn({ origin, rpID, invite, autofill, onAutofill }: {
         // Ask the phone to stop offering a passkey we no longer accept. Best effort: a browser that can't, ignores it.
         sendSignal({ signalName: "unknownCredential", rpID, credentialID: response.id }).catch(() => {});
       }
-      setMsg({ text: r.error, warn: true });
+      setMsg({ text: t(PASSKEY_WORDS[r.reason]), warn: true });
       arm();
     });
   }
@@ -85,8 +89,8 @@ export function PasskeySignIn({ origin, rpID, invite, autofill, onAutofill }: {
       response = await startAuthentication({ optionsJSON: o });       // takes over from the autofill request, same challenge
     } catch (e) {
       const end = ceremonyEnd(e);
-      if (end === "cancelled") setMsg({ text: PASSKEY_WORDS.cancelled, warn: false });
-      else if (end !== "aborted") setMsg({ text: PASSKEY_WORDS.failed, warn: true });
+      if (end === "cancelled") setMsg({ text: t(PASSKEY_WORDS.cancelled), warn: false });
+      else if (end !== "aborted") setMsg({ text: t(PASSKEY_WORDS.failed), warn: true });
     }
     s.current.modal = false;
     setPrompting(false);
@@ -129,11 +133,11 @@ export function PasskeySignIn({ origin, rpID, invite, autofill, onAutofill }: {
   if (!supported) return null;
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-3 text-steel" aria-hidden><span className="h-px flex-1 bg-line" />or<span className="h-px flex-1 bg-line" /></div>
+      <div className="flex items-center gap-3 text-steel" aria-hidden><span className="h-px flex-1 bg-line" />{t("or")}<span className="h-px flex-1 bg-line" /></div>
       <button type="button" onClick={tap} disabled={prompting || pending || leaving} className="btn-ghost px-4">
         <ScanFace size={26} strokeWidth={2.25} aria-hidden className="shrink-0" />
         {/* Two even lines on a narrow phone rather than one word hanging on its own. */}
-        <span className="text-balance">{pending || leaving ? "Signing you in…" : "Sign in with Face\u00a0ID or fingerprint"}</span>
+        <span className="text-balance">{pending || leaving ? t("Signing you in…") : t("Sign in with Face\u00a0ID or fingerprint")}</span>
       </button>
       {msg && <p role="status" className={msg.warn ? "text-warn font-semibold" : "font-semibold"}>{msg.text}</p>}
     </div>

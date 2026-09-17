@@ -1,6 +1,7 @@
 "use client";
 import { useRef, useState } from "react";
 import { ConfirmSheet } from "./ConfirmSheet";
+import { useT } from "./Lang";
 
 /**
  * A button that asks first. Same call sites as before (`action`, `msg`), but the question is now the app's
@@ -25,12 +26,13 @@ export function ConfirmButton({
 }) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
+  const t = useT();
   return (
     <form action={action}>
       <button ref={trigger} className={className} onClick={(e) => { e.preventDefault(); setOpen(true); }}>{children}</button>
       <ConfirmSheet open={open} onClose={() => setOpen(false)} returnFocus={trigger} submit
-        title={title ?? msg ?? "Are you sure?"} msg={title && msg ? msg : undefined}
-        details={details} confirmLabel={confirmLabel ?? "Yes"} cancelLabel={cancelLabel ?? "Keep it"} danger={danger} />
+        title={title ?? msg ?? t("Are you sure?")} msg={title && msg ? msg : undefined}
+        details={details} confirmLabel={confirmLabel} cancelLabel={cancelLabel} danger={danger} />
     </form>
   );
 }

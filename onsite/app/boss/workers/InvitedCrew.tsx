@@ -30,16 +30,18 @@ export function InvitedCrew({ invites, link, company, firstName }: {
   return (
     <ul className="card divide-y divide-line -my-1">
       {invites.map((i) => (
-        <li key={i.id} className="py-3 flex items-center gap-2">
-          <div className="flex-1 min-w-0">
+        <li key={i.id} className="py-3 space-y-2">
+          <div className="min-w-0">
             <div className="font-bold truncate">{crewLabel(i)}</div>
             <div className="text-sm text-steel">Invited {ago(i.invited_at)}{copied === i.id ? " · Link copied" : ""}</div>
           </div>
-          {link && <button onClick={() => share(i.id)} className="btn-ghost btn-sm shrink-0">Share again</button>}
-          <ConfirmButton action={removeCrewInvite.bind(null, i.id)} className="btn-ghost btn-sm shrink-0"
+          <div className="flex gap-2">
+          {link && <button onClick={() => share(i.id)} className="btn-ghost btn-sm flex-1">Share again</button>}
+          <ConfirmButton action={removeCrewInvite.bind(null, i.id)} className="btn-ghost btn-sm w-full"
             title={`Take ${crewLabel(i)} off the list?`}
             details={["We stop keeping that number.", "If they sign up later they won't land in your crew."]}
             confirmLabel="Yes, remove" cancelLabel="Keep it">Remove</ConfirmButton>
+          </div>
         </li>
       ))}
     </ul>

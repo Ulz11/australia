@@ -209,6 +209,7 @@ The **worker** side reads in the worker's own language: **English, Монгол,
 - **Reminders** are written in the worker's language, not the server's: they land on a phone as a push and there is nobody to translate them afterwards (`lib/reminders.ts` loads one dictionary per language that turns up in a pass). A boss's is English.
 - `/privacy` and `/terms` stay English, because they have to be exact — but each says so at the top **in the reader's language**: *"This page is in English. Ask someone you trust to read it with you."*
 - **The translations are drafts.** Only Mongolian has been checked by someone who speaks it. The other four need a native speaker's read before they reach real workers.
+- **Not translated yet**, and still English on a worker's screen: the Me record page and its edit / shifts screens, the deal-requests list, the map's own labels, the push notification **titles** (`lib/alerts.ts`), and the notification bodies other than the reminders. Month names come from the browser's own data, so a language Chrome has no month names for (Mongolian is one) shows them in English.
 
 ## Maps
 

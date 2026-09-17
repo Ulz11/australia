@@ -2,6 +2,7 @@
 import { useEffect, useId, useRef } from "react";
 import { useFormStatus } from "react-dom";
 import { TriangleAlert, type LucideIcon } from "lucide-react";
+import { useT } from "./Lang";
 
 export type ConfirmSheetProps = {
   open: boolean;
@@ -32,9 +33,10 @@ export type ConfirmSheetProps = {
  * Nothing here is needed for the action to work: with JavaScript off the trigger submits its form as before.
  */
 export function ConfirmSheet({
-  open, onClose, title, msg, details, confirmLabel = "Yes, do it", cancelLabel = "Keep it",
+  open, onClose, title, msg, details, confirmLabel, cancelLabel,
   danger = true, icon, submit, onConfirm, returnFocus,
 }: ConfirmSheetProps) {
+  const t = useT();
   const dialog = useRef<HTMLDialogElement>(null);
   const keep = useRef<HTMLButtonElement>(null);
   const titleId = useId();
@@ -78,7 +80,7 @@ export function ConfirmSheet({
           </ul>
         )}
 
-        <Buttons keepRef={keep} confirmLabel={confirmLabel} cancelLabel={cancelLabel} danger={danger}
+        <Buttons keepRef={keep} confirmLabel={confirmLabel ?? t("Yes, do it")} cancelLabel={cancelLabel ?? t("Keep it")} danger={danger}
           submit={submit} onConfirm={onConfirm} onClose={onClose} />
       </div>
     </dialog>
@@ -91,6 +93,7 @@ function Buttons({ keepRef, confirmLabel, cancelLabel, danger, submit, onConfirm
   danger: boolean; submit?: boolean; onConfirm?: () => void; onClose: () => void;
 }) {
   const { pending } = useFormStatus();
+  const t = useT();
   const was = useRef(false);
   useEffect(() => {
     if (pending) was.current = true;
@@ -102,7 +105,7 @@ function Buttons({ keepRef, confirmLabel, cancelLabel, danger, submit, onConfirm
       <button type={submit ? "submit" : "button"} disabled={pending}
         onClick={submit ? undefined : () => { onConfirm?.(); onClose(); }}
         className={danger ? "btn-destroy" : "btn-primary"}>
-        {pending ? "Working…" : confirmLabel}
+        {pending ? t("Working…") : confirmLabel}
       </button>
       <button ref={keepRef} type="button" className="btn-ghost" disabled={pending} onClick={onClose}>{cancelLabel}</button>
     </div>

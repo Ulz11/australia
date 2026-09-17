@@ -1,12 +1,16 @@
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
-export function Header({ title, back, right }: { title: string; back?: string; right?: React.ReactNode }) {
+import { getT } from "@/lib/i18n/server";
+
+/** Async only for the one word in it: "Back" reads in the worker's language, and English on a boss screen. */
+export async function Header({ title, back, right }: { title: string; back?: string; right?: React.ReactNode }) {
+  const t = await getT();
   return (
     <header className="sticky top-0 z-30 bg-site/95 backdrop-blur border-b border-line">
       <div className="max-w-md mx-auto flex items-center gap-2 px-4 h-16">
         {back && (
-          <Link href={back} className="text-lg font-bold px-2 -ml-2 min-h-[44px] flex items-center gap-1" aria-label="Back">
-            <ChevronLeft size={22} strokeWidth={2.5} aria-hidden />Back
+          <Link href={back} className="text-lg font-bold px-2 -ml-2 min-h-[44px] flex items-center gap-1" aria-label={t("Back")}>
+            <ChevronLeft size={22} strokeWidth={2.5} aria-hidden />{t("Back")}
           </Link>
         )}
         <h1 className={`text-2xl font-extrabold truncate flex-1 ${back ? "text-right" : ""}`}>{title}</h1>

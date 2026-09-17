@@ -111,7 +111,10 @@ export function AddCrew({ company, firstName, link, canText }: { company: string
               <button onClick={add} disabled={pending} className="btn-primary">
                 {pending ? "Adding…" : `Add ${preview.rows.length} ${preview.rows.length === 1 ? "person" : "people"}`}
               </button>
-              <p className="text-steel text-sm">{adding > 0 && `${adding} go straight into your crew. `}{inviting > 0 && `${inviting} get an invite, kept for 90 days. Only you see these numbers.`}</p>
+              <p className="text-steel text-sm">
+                {adding > 0 && `${adding} ${adding === 1 ? "goes" : "go"} straight into your crew. `}
+                {inviting > 0 && `${inviting} ${inviting === 1 ? "gets an invite" : "get invites"}, kept for 90 days. Only you see these numbers.`}
+              </p>
               <button onClick={() => setPreview(null)} className="btn-ghost">Change the list</button>
             </>}
       </div>

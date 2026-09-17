@@ -70,8 +70,9 @@ async function main() {
                           VALUES (${P(b.n)}, ${b.name}, 'boss', now(), ${PRIVACY_VERSION}, now(), ${TERMS_VERSION}) RETURNING id`;
     uid[b.n] = u.id;
     // Same free trial a real boss gets, so the demo's Billing screen shows a live one rather than a blank.
-    await sql`INSERT INTO bosses (user_id, company, abn, trial_ends_at, period_started_at, period_ends_at)
-              VALUES (${u.id}, ${b.company}, ${b.abn}, now() + interval '3 days', now() + interval '3 days', now() + interval '1 month 3 days')`;
+    // invite_code is the boss's crew link, /join/c/<code> (migration 019).
+    await sql`INSERT INTO bosses (user_id, company, abn, trial_ends_at, period_started_at, period_ends_at, invite_code)
+              VALUES (${u.id}, ${b.company}, ${b.abn}, now() + interval '3 days', now() + interval '3 days', now() + interval '1 month 3 days', ${"B" + b.n + "CREW"})`;
   }
   for (const [n, name, sub, lat, lng, tix, visa, radius] of workers) {
     const [u] = await sql`INSERT INTO users (phone, name, role, privacy_accepted_at, privacy_version, terms_accepted_at, terms_version)
