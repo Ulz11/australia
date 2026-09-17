@@ -67,6 +67,22 @@ dialog.sheet::backdrop { background: transparent; }
 @keyframes sheet-pop { from { transform: translateY(12px) scale(0.98); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes sheet-fade { from { opacity: 0; } to { opacity: 1; } }
 
+/*
+ * Days on the tools (components/Heatmap.tsx): one ink at four steps, so a shade reads as an amount rather
+ * than a state. currentColor, not a hex, so the grid follows whatever the text colour is — light or dark.
+ * Orange is deliberately absent: a long day is not a warning.
+ */
+.hm-0 { fill: currentColor; fill-opacity: 0.08; }
+.hm-1 { fill: currentColor; fill-opacity: 0.30; }
+.hm-2 { fill: currentColor; fill-opacity: 0.60; }
+.hm-3 { fill: currentColor; fill-opacity: 0.92; }
+.hm-label { font-size: 10px; font-weight: 700; fill: currentColor; fill-opacity: 0.5; }
+.hm-key { display: inline-block; width: 12px; height: 12px; border-radius: 3px; background: currentColor; }
+.hm-key-0 { opacity: 0.08; }
+.hm-key-1 { opacity: 0.30; }
+.hm-key-2 { opacity: 0.60; }
+.hm-key-3 { opacity: 0.92; }
+
 /* A field focused behind the job form's sticky bar still scrolls clear of it. */
 html:has(.stickybar) { scroll-padding-bottom: 200px; }
 

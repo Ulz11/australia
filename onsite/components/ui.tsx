@@ -73,7 +73,7 @@ export function Chev() {
   return <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="shrink-0 text-steel"><path d="m9 18 6-6-6-6" /></svg>;
 }
 
-export function Big({ n, label, hot, icon }: { n: string | number; label: string; hot?: boolean; icon?: LucideIcon }) {
+export function Big({ n, label, hot, icon, sub }: { n: string | number; label: string; hot?: boolean; icon?: LucideIcon; sub?: string }) {
   const Icon = hot ? icon ?? CircleAlert : icon;
   return (
     // min-w-0: a grid item won't shrink below its content without it, so a long value pushes out of the card.
@@ -82,6 +82,7 @@ export function Big({ n, label, hot, icon }: { n: string | number; label: string
       <div className="text-sm font-semibold mt-1 opacity-80 flex items-center gap-1.5">
         {Icon && <Icon size={16} strokeWidth={2.5} aria-hidden className="shrink-0" />}{label}
       </div>
+      {sub && <div className="text-xs mt-0.5 opacity-60">{sub}</div>}
     </div>
   );
 }
@@ -90,7 +91,7 @@ export function Big({ n, label, hot, icon }: { n: string | number; label: string
  * A money tile. Dollars big, cents small: the exact figure in about half the width, because
  * "$1,991.00" at one size overflows a third of a phone screen. `hero` is the number being acted on.
  */
-export function BigMoney({ n, label, hot, hero, icon }: { n: number; label: string; hot?: boolean; hero?: boolean; icon?: LucideIcon }) {
+export function BigMoney({ n, label, hot, hero, icon, sub }: { n: number; label: string; hot?: boolean; hero?: boolean; icon?: LucideIcon; sub?: string }) {
   const [dollars, cents] = money(n).split(".");
   const Icon = hot ? icon ?? CircleAlert : icon;
   return (
@@ -101,6 +102,7 @@ export function BigMoney({ n, label, hot, hero, icon }: { n: number; label: stri
       <div className="text-sm font-semibold mt-1 opacity-80 flex items-center gap-1.5">
         {Icon && <Icon size={16} strokeWidth={2.5} aria-hidden className="shrink-0" />}{label}
       </div>
+      {sub && <div className="text-xs mt-0.5 opacity-60">{sub}</div>}
     </div>
   );
 }

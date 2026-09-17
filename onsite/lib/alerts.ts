@@ -57,7 +57,9 @@ export function alertFor(n: { id: string; kind: string; body: string; shift_id: 
   const url = boss
     ? n.kind === "offer" ? "/boss/offers" : n.kind === "invoice_paid" ? "/boss/billing" : n.shift_id ? `/boss/shifts/${n.shift_id}` : "/boss"
     : n.kind === "shift_match" ? "/worker"
-    : ["hours_approved", "paid", "test", "licence_check"].includes(n.kind) ? "/worker/me"
+    // A card that has been checked opens the screen the cards are on; money opens the record, which shows it.
+    : n.kind === "licence_check" ? "/worker/me/edit"
+    : ["hours_approved", "paid", "test"].includes(n.kind) ? "/worker/me"
     : ["counter", "offer_accepted", "offer_declined"].includes(n.kind) ? "/worker/offers"
     : "/worker/shift";
   return { title: urgent ? "Starts soon — shift near you" : TITLES[n.kind] ?? "OnSite", body: n.body, url, tag: `${n.kind}:${n.shift_id ?? n.id}`, urgent };

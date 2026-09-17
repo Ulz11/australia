@@ -21,7 +21,7 @@ export const dynamic = "force-dynamic";
 export default async function Billing() {
   const u = await requireRole("boss");
   const [b, invoices, matches] = await Promise.all([bossBilling(u.id), listInvoices(u.id), matchesThisPeriod(u.id)]);
-  if (!b) return <><Header title="Billing" back="/boss/me" /><Page><Empty>Company details missing — tell us and we&apos;ll fix it.</Empty></Page></>;
+  if (!b) return <><Header title="Billing" back="/boss/me" /><Page><Row href="/boss/me/settings" tone="orange" title="Company details missing" sub="Your company name goes on the top of every invoice. Add it in Settings." /></Page></>;
 
   const words = statusWords({ status: b.subscription_status, trial_ends_at: b.trial_ends_at, period_ends_at: b.period_ends_at });
   const tone = b.subscription_status === "active" ? "green" : b.subscription_status === "lapsed" ? "orange" : "grey";

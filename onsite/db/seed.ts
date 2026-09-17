@@ -7,7 +7,9 @@
  */
 import postgres from "postgres";
 import { PRIVACY_VERSION } from "../lib/privacy";
-const sql = postgres(process.env.DATABASE_URL!, { ssl: "require", max: 1 });
+// Site time, like the app's own pool (lib/db.ts): the bare timestamps below ('06:28' and friends) are read in
+// the session's zone, so without this every seeded clock-in lands at half four in the afternoon in Sydney.
+const sql = postgres(process.env.DATABASE_URL!, { ssl: "require", max: 1, connection: { TimeZone: process.env.APP_TZ || "Australia/Sydney" } });
 
 // Days count from Sydney's today, not UTC's: the app's DB session runs in Australia/Sydney, so UTC dates were a day behind every morning.
 const sydneyToday = new Date().toLocaleDateString("en-CA", { timeZone: process.env.APP_TZ || "Australia/Sydney" });

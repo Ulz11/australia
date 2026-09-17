@@ -37,7 +37,7 @@ export default async function WorkerHome() {
       <Header title={`G'day, ${u.name?.split(" ")[0]}`} />
       <Page>
         {!w.has_home && (
-          <Link href="/worker/me" className="block">
+          <Link href="/worker/me/settings" className="block">
             <Say tone="orange" icon={MapPin} title="Tell us where you live" sub="Tap here. We only show shifts near you." />
           </Link>
         )}

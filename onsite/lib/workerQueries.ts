@@ -71,7 +71,7 @@ export async function offersFor(workerId: string) {
 export async function myBookings(workerId: string) {
   return sql`
     SELECT b.*, s.day, COALESCE(b.agreed_start, s.start_time) AS start_time, COALESCE(b.agreed_hours, s.hours) AS hours,
-           COALESCE(b.agreed_rate, s.rate) AS rate, s.role, s.note, s.boss_id,
+           COALESCE(b.agreed_rate, s.rate) AS rate, s.role, s.note, s.boss_id, s.project_id,
            s.weather_stop, s.weather_note, s.ot_mode, s.ot_after_hours, s.ot_multiplier,
            (b.agreed_rate IS NOT NULL OR b.agreed_hours IS NOT NULL OR b.agreed_start IS NOT NULL) AS negotiated,
            p.name AS site, p.address, ST_Y(p.location::geometry) AS lat, ST_X(p.location::geometry) AS lng,

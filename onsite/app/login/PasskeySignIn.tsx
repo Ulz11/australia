@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { ScanFace } from "lucide-react";
 import { WebAuthnAbortService, sendSignal, startAuthentication, type AuthenticationResponseJSON, type PublicKeyCredentialRequestOptionsJSON } from "@simplewebauthn/browser";
 import { passkeyLoginOptions, passkeySignIn } from "@/actions/passkeys";
@@ -24,7 +25,10 @@ export function PasskeySignIn({ origin, rpID, invite, autofill, onAutofill }: {
   const [supported, setSupported] = useState(false);
   const [msg, setMsg] = useState<Msg>(null);
   const [prompting, setPrompting] = useState(false);
+  /** Signed in and on our way out. Latched, so the button doesn't flick back while the next screen loads. */
+  const [leaving, setLeaving] = useState(false);
   const [pending, start] = useTransition();
+  const router = useRouter();
   /** Only touched from effects and taps. `modal`: the button's prompt is up, so autofill must not cancel it. */
   const s = useRef({ options: null as PublicKeyCredentialRequestOptionsJSON | null, at: 0, alive: false, modal: false, autofill: false });
 
@@ -50,14 +54,19 @@ export function PasskeySignIn({ origin, rpID, invite, autofill, onAutofill }: {
     submit(response);
   }
 
-  /** Send what the phone signed. On success the action redirects and this page goes away; otherwise say why and listen again. */
+  /**
+   * Send what the phone signed. On success the action hands back where to go and we go there, saying nothing:
+   * the button stays on "Signing you in…" until the next screen lands, so there is never a message between the
+   * two. Anything else is a real failure — say why and start listening again.
+   */
   function submit(response: AuthenticationResponseJSON) {
     s.current.options = null;                                         // that challenge is spent either way
     rememberHere(response.id);
     setMsg(null);
     start(async () => {
-      const r = await passkeySignIn(response, invite).catch(() => ({ reason: "failed" as const, error: PASSKEY_WORDS.failed }));
+      const r = await passkeySignIn(response, invite).catch(() => ({ ok: false as const, reason: "failed" as const, error: PASSKEY_WORDS.failed }));
       if (!r || !s.current.alive) return;
+      if (r.ok) { setLeaving(true); router.push(r.to); return; }
       if (r.reason === "unknown") {
         forgetHere(response.id);
         // Ask the phone to stop offering a passkey we no longer accept. Best effort: a browser that can't, ignores it.
@@ -121,10 +130,10 @@ export function PasskeySignIn({ origin, rpID, invite, autofill, onAutofill }: {
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-3 text-steel" aria-hidden><span className="h-px flex-1 bg-line" />or<span className="h-px flex-1 bg-line" /></div>
-      <button type="button" onClick={tap} disabled={prompting || pending} className="btn-ghost px-4">
+      <button type="button" onClick={tap} disabled={prompting || pending || leaving} className="btn-ghost px-4">
         <ScanFace size={26} strokeWidth={2.25} aria-hidden className="shrink-0" />
         {/* Two even lines on a narrow phone rather than one word hanging on its own. */}
-        <span className="text-balance">{pending ? "Signing you in…" : "Sign in with Face\u00a0ID or fingerprint"}</span>
+        <span className="text-balance">{pending || leaving ? "Signing you in…" : "Sign in with Face\u00a0ID or fingerprint"}</span>
       </button>
       {msg && <p role="status" className={msg.warn ? "text-warn font-semibold" : "font-semibold"}>{msg.text}</p>}
     </div>

@@ -38,11 +38,18 @@ const ids: Record<keyof typeof PHONES, string> = { worker: "", boss: "", fresh: 
 const set = vi.fn((c: { name: string; value: string }) => { req.jar.store.set(c.name, c.value); });
 req.jar.set = set;
 
-/** Where an action sent them (a sign-in always ends in a redirect), or what it returned instead. */
+/** Where an action sent them (a code sign-in ends in a redirect), or what it returned instead. */
 const outcome = <T,>(p: Promise<T>) => p.then(
   (v) => ({ returned: v, to: null as string | null }),
   (e) => { const d = String((e as { digest?: string })?.digest ?? ""); if (!d.includes("NEXT_REDIRECT")) throw e; return { returned: null, to: d.split(";")[2] }; },
 );
+/**
+ * A passkey sign-in hands the path back rather than redirecting: Next delivers a redirect thrown inside an
+ * action to an imperative caller as a rejected promise, which the login screen couldn't tell from a real
+ * failure. Read here in the same { returned, to } shape as the actions that still do redirect.
+ */
+const signedIn = (p: ReturnType<typeof passkeySignIn>) =>
+  p.then((r) => (r.ok ? { returned: null, to: r.to as string | null } : { returned: r, to: null as string | null }));
 const as = (who: keyof typeof ids | null) => vi.stubEnv("TEST_USER_ID", who ? ids[who] : "");
 const seed = (key: string, hits: number) => sql`
   INSERT INTO rate_limits (key, window_start, hits) VALUES (${key}, now(), ${hits})
@@ -132,7 +139,7 @@ describe.skipIf(!process.env.DATABASE_URL)("Face ID / fingerprint sign-in (passk
     const [c] = await sql`SELECT kind, user_id FROM webauthn_challenges WHERE challenge = ${options.challenge}`;
     expect(c).toEqual({ kind: "login", user_id: null });
 
-    const { to } = await outcome(passkeySignIn(auth.signIn(options)));
+    const { to } = await signedIn(passkeySignIn(auth.signIn(options)));
     expect(to).toBe("/worker");
     const cookies = sessionSet();
     expect(cookies).toHaveLength(1);
@@ -146,12 +153,12 @@ describe.skipIf(!process.env.DATABASE_URL)("Face ID / fingerprint sign-in (passk
 
   it("goes where a code sign-in goes: the boss home, or onboarding (keeping an invite) for an account not set up yet", async () => {
     const boss = await registerFor("boss");
-    expect((await outcome(passkeySignIn(boss.signIn(track(await loginOptions()))))).to).toBe("/boss");
+    expect((await signedIn(passkeySignIn(boss.signIn(track(await loginOptions()))))).to).toBe("/boss");
 
     // a fresh account can't register itself before onboarding in the UI, but a passkey can outlive a reset role
     const fresh = await registerFor("fresh");
-    expect((await outcome(passkeySignIn(fresh.signIn(track(await loginOptions())), "ABC123"))).to).toBe("/onboarding?invite=ABC123");
-    expect((await outcome(passkeySignIn(fresh.signIn(track(await loginOptions()))))).to).toBe("/onboarding");
+    expect((await signedIn(passkeySignIn(fresh.signIn(track(await loginOptions())), "ABC123"))).to).toBe("/onboarding?invite=ABC123");
+    expect((await signedIn(passkeySignIn(fresh.signIn(track(await loginOptions()))))).to).toBe("/onboarding");
     expect(signedInPath({ role: null, name: null }, "ABC123")).toBe("/onboarding?invite=ABC123");
 
     // …and the code path goes through the same function, and asks about Face ID on the next screen
@@ -169,21 +176,21 @@ describe.skipIf(!process.env.DATABASE_URL)("Face ID / fingerprint sign-in (passk
     const auth = await registerFor("worker");
     const options = track(await loginOptions());
     const signed = auth.signIn(options);
-    expect((await outcome(passkeySignIn(signed))).to).toBe("/worker");
+    expect((await signedIn(passkeySignIn(signed))).to).toBe("/worker");
     set.mockClear();
-    expect((await outcome(passkeySignIn(signed))).returned).toEqual({ ok: false, reason: "expired", error: PASSKEY_WORDS.expired });
+    expect((await signedIn(passkeySignIn(signed))).returned).toEqual({ ok: false, reason: "expired", error: PASSKEY_WORDS.expired });
     expect(sessionSet()).toEqual([]);
 
     const late = track(await loginOptions());
     await sql`UPDATE webauthn_challenges SET expires_at = now() - interval '1 second' WHERE challenge = ${late.challenge}`;
-    expect((await outcome(passkeySignIn(auth.signIn(late)))).returned).toMatchObject({ ok: false, reason: "expired" });
+    expect((await signedIn(passkeySignIn(auth.signIn(late)))).returned).toMatchObject({ ok: false, reason: "expired" });
 
     // a registration challenge is no good for signing in, and one person's registration challenge is no good for another
     as("worker");
     const reg = await passkeyRegisterOptions();
     if (!reg.ok) throw new Error(reg.error);
     track(reg.options);
-    expect((await outcome(passkeySignIn(auth.signIn({ challenge: reg.options.challenge })))).returned).toMatchObject({ ok: false, reason: "expired" });
+    expect((await signedIn(passkeySignIn(auth.signIn({ challenge: reg.options.challenge })))).returned).toMatchObject({ ok: false, reason: "expired" });
     as("other");
     expect(await passkeyRegister(new SoftAuthenticator(RP, BASE).register(reg.options))).toMatchObject({ ok: false, reason: "expired" });
     as("worker");
@@ -207,19 +214,19 @@ describe.skipIf(!process.env.DATABASE_URL)("Face ID / fingerprint sign-in (passk
     ];
     for (const [what, forge, reason] of cases) {
       const o = track(await loginOptions());
-      expect((await outcome(passkeySignIn(forge(o)))).returned, what).toMatchObject({ ok: false, reason });
+      expect((await signedIn(passkeySignIn(forge(o)))).returned, what).toMatchObject({ ok: false, reason });
     }
     expect(sessionSet()).toEqual([]);
     const [p] = await sql`SELECT counter, last_used_at FROM passkeys WHERE credential_id = ${auth.id}`;
     expect(p).toEqual({ counter: "10", last_used_at: null });
     // and the real thing still works afterwards
-    expect((await outcome(passkeySignIn(auth.signIn(track(await loginOptions())))))).toMatchObject({ to: "/worker" });
+    expect((await signedIn(passkeySignIn(auth.signIn(track(await loginOptions())))))).toMatchObject({ to: "/worker" });
   });
 
   it("two sign-ins racing with the same counter: one gets in", async () => {
     const auth = await registerFor("worker", new SoftAuthenticator(RP, BASE, { counter: 20, synced: false }));
     const [a, b] = [track(await loginOptions()), track(await loginOptions())];
-    const results = await Promise.all([a, b].map((o) => outcome(passkeySignIn(auth.signIn(o, { counter: 21 })))));
+    const results = await Promise.all([a, b].map((o) => signedIn(passkeySignIn(auth.signIn(o, { counter: 21 })))));
     expect(results.map((r) => r.to ?? (r.returned as { reason: string }).reason).sort()).toEqual(["/worker", "failed"]);
     expect((await sql`SELECT counter FROM passkeys WHERE credential_id = ${auth.id}`)[0].counter).toBe("21");
   });
@@ -241,7 +248,7 @@ describe.skipIf(!process.env.DATABASE_URL)("Face ID / fingerprint sign-in (passk
     as("worker");
     await removePasskey(id);
     expect((await sql`SELECT 1 FROM passkeys WHERE id = ${id}`).length).toBe(0);
-    const r = await outcome(passkeySignIn(auth.signIn(track(await loginOptions()))));
+    const r = await signedIn(passkeySignIn(auth.signIn(track(await loginOptions()))));
     expect(r.returned).toEqual({ ok: false, reason: "unknown", error: "That Face ID sign-in isn't linked to an account any more. Use a text code." });
     expect(sessionSet()).toEqual([]);
   });
@@ -278,10 +285,10 @@ describe.skipIf(!process.env.DATABASE_URL)("Face ID / fingerprint sign-in (passk
     await sql`DELETE FROM rate_limits WHERE key = ${`passkey-login:ip:${IP}`}`;
     const options = track(await loginOptions());
     await seed(`passkey-verify:ip:${IP}`, PASSKEY_LIMITS.loginVerifiesPerIp);
-    expect((await outcome(passkeySignIn(auth.signIn(options)))).returned).toMatchObject({ ok: false, reason: "busy" });
+    expect((await signedIn(passkeySignIn(auth.signIn(options)))).returned).toMatchObject({ ok: false, reason: "busy" });
     expect(sessionSet()).toEqual([]);
     req.headers = new Headers({ "x-forwarded-for": "198.51.100.87", "user-agent": IPHONE });   // another connection isn't held up
-    expect((await outcome(passkeySignIn(auth.signIn(options)))).to).toBe("/worker");
+    expect((await signedIn(passkeySignIn(auth.signIn(options)))).to).toBe("/worker");
     await sql`DELETE FROM rate_limits WHERE key LIKE 'passkey-%:ip:198.51.100.87'`;
 
     as("worker");
@@ -303,7 +310,7 @@ describe.skipIf(!process.env.DATABASE_URL)("Face ID / fingerprint sign-in (passk
     for (const url of ["", "http://onsite-au.vercel.app", "not a url"]) {
       vi.stubEnv("NEXT_PUBLIC_BASE_URL", url);
       expect(await passkeyLoginOptions(), url).toMatchObject({ ok: false, reason: "off" });
-      expect((await outcome(passkeySignIn(auth.signIn(options)))).returned, url).toMatchObject({ ok: false, reason: "off" });
+      expect((await signedIn(passkeySignIn(auth.signIn(options)))).returned, url).toMatchObject({ ok: false, reason: "off" });
       as("worker");
       expect(await passkeyRegisterOptions(), url).toMatchObject({ ok: false, reason: "off" });
       as(null);
@@ -314,6 +321,6 @@ describe.skipIf(!process.env.DATABASE_URL)("Face ID / fingerprint sign-in (passk
     vi.stubEnv("WEBAUTHN_RP_ID", "vercel.app");
     const moved = track(await loginOptions());
     expect(moved.rpId).toBe("vercel.app");
-    expect((await outcome(passkeySignIn(auth.signIn(moved)))).returned).toMatchObject({ ok: false, reason: "failed" });
+    expect((await signedIn(passkeySignIn(auth.signIn(moved)))).returned).toMatchObject({ ok: false, reason: "failed" });
   });
 });

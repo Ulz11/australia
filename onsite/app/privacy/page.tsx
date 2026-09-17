@@ -58,12 +58,14 @@ export default async function Privacy() {
           <li>Your <b>licence and White Card details</b>: card type, <b>card number</b>, state, expiry date, the name on the card, and the result of any check.</li>
           <li>The shifts you take, deals you ask for, and the times you <b>clock in and out</b>. When you clock in, your phone tells the app where you are (if you let it); we work out <b>how far you are from the site</b> and keep only that distance, not your location.</li>
           <li>Your <b>hours and pay records</b>, and <b>reliability</b> figures worked out from them: shifts turned up to, completed and cancelled.</li>
+          <li>When a boss opens your profile, the <b>date</b> they opened it — once a day, however many times they look. It is kept so you can see <b>how many</b> bosses looked at you in the last week. You are never told which ones, and no boss is told you saw the number.</li>
           <li>Your invite code, and who invited you if you joined with someone else's.</li>
         </ul>
       </Section>
 
       <Section title="Who sees what">
         <p><b>Bosses</b> using OnSite can see a worker's name, mobile number, photo, trades, languages, experience, about text, the place name they chose for where they live, reliability figures, and — on a shift — clock-in times and distance from the site.</p>
+        <p>On a worker's profile a boss also sees the same work record the worker sees on their own screen: turning up, clocking in on time, pulling out of shifts, hours disagreed, hours by trade, how many sites they have worked, how many bosses would book them again, and which days they worked over the last year. <b>A boss never sees what a worker has earned</b> — not on their own sites and not on anyone else's — and never sees another boss's name or the name of a site that isn't theirs.</p>
         <p>For licences and White Cards, bosses see only the card type, state, expiry and whether it checks out. <b>Bosses never see your card numbers, and never see your visa type.</b></p>
         <p><b>Workers</b> can see a boss's name and company, the site's name, address and pin for open shifts, how quickly that boss approves and pays, and — once you are on a shift — the boss's mobile number.</p>
         <p>If you gave a mate your invite code, you can see their name and how many shifts they have completed. Nobody else using OnSite can see your information.</p>

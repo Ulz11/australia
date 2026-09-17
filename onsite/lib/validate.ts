@@ -12,6 +12,19 @@ export const num = (v: unknown, lo: number, hi: number, fallback: number): numbe
 export const isLatLng = (lat: unknown, lng: unknown) =>
   typeof lat === "number" && typeof lng === "number" && Number.isFinite(lat) && Number.isFinite(lng)
   && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && !(lat === 0 && lng === 0);
+/**
+ * An ABN, checked the way the ATO's own rule does rather than just counted: knock one off the first digit,
+ * weight the eleven digits 10, 1, 3, 5… and the sum divides by 89. Returns the eleven digits with the spaces
+ * taken out — that is what gets stored — or null for anything that isn't a real ABN.
+ */
+const ABN_WEIGHTS = [10, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19];
+export function cleanAbn(v: unknown): string | null {
+  const digits = String(v ?? "").replace(/\D/g, "");
+  if (digits.length !== 11) return null;
+  const sum = ABN_WEIGHTS.reduce((a, w, i) => a + w * (Number(digits[i]) - (i === 0 ? 1 : 0)), 0);
+  return sum % 89 === 0 ? digits : null;
+}
+
 /** Escape text before it goes into innerHTML. */
 export const escapeHtml = (s: unknown) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));

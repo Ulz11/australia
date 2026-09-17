@@ -1,10 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { after } from "next/server";
 import { sql } from "@/lib/db";
 import { requireRole } from "@/lib/session";
 import { Header, Page } from "@/components/Header";
 import { Wallet } from "lucide-react";
 import { Avatar, Flag, Say, Section, Field } from "@/components/ui";
+import { Facts } from "@/components/Facts";
+import { Heatmap } from "@/components/Heatmap";
 import { StatusPill } from "@/components/StatusPill";
 import { CallLink } from "@/components/CallLink";
 import { ConfirmButton } from "@/components/ConfirmButton";
@@ -14,20 +17,28 @@ import { fmtDay, todayIso } from "@/lib/util";
 import { licenceWords } from "@/lib/verify";
 import { isUuid } from "@/lib/validate";
 import { workerForBoss, licencesForBoss } from "@/lib/bossQueries";
+import { share, SMALL_N, workerRecordForBoss } from "@/lib/profileStats";
 export const dynamic = "force-dynamic";
 
 export default async function WorkerProfile({ params }: { params: Promise<{ id: string }> }) {
   const u = await requireRole("boss");
   const { id } = await params;
   if (!isUuid(id)) notFound();
-  const [w, history, licences] = await Promise.all([
+  const [w, history, licences, rec] = await Promise.all([
     workerForBoss(u.id, id),
     sql`SELECT b.id, b.status, b.hours_approved, b.hours_worked, s.day, s.rate, p.name AS site
         FROM bookings b JOIN shifts s ON s.id = b.shift_id JOIN projects p ON p.id = s.project_id
         WHERE b.worker_id = ${id} AND s.boss_id = ${u.id} AND b.status <> 'removed' ORDER BY s.day DESC LIMIT 40`,
     licencesForBoss(id),
+    workerRecordForBoss(id),
   ]);
   if (!w) notFound();
+  // A look is a look, once a day. The worker is told how many bosses looked this week, never which — /privacy
+  // says so in as many words. After the response, so opening a profile is never a millisecond slower for it.
+  const day = todayIso();
+  after(() => sql`INSERT INTO profile_views (boss_id, worker_id, day) VALUES (${u.id}, ${id}, ${day})
+                  ON CONFLICT DO NOTHING`.catch((e) => console.error("profile view not recorded", (e as { code?: string })?.code ?? "error")));
+  const rel = rec.reliability;
   const total = history.filter((h) => h.hours_approved).reduce((a, h) => a + Number(h.hours_approved) * Number(h.rate), 0);
   const owed = history.filter((h) => h.status === "approved").reduce((a, h) => a + Number(h.hours_approved) * Number(h.rate), 0);
   const first = w.name.split(" ")[0];
@@ -64,6 +75,24 @@ export default async function WorkerProfile({ params }: { params: Promise<{ id: 
 
         {/* Money you owe is waiting on you: same rule as "Still to pay" on the Pay screen. */}
         {owed > 0 && <Say tone="orange" icon={Wallet} title={`You owe ${money(owed)}`} sub="Approved hours you haven't marked paid. Pay them your usual way, then mark it in Pay." />}
+
+        {/* The same four rows the worker reads on their own screen, so nobody is surprised by their record. */}
+        <Facts title="Reliability" hint={`${first} sees these figures too.`} facts={[
+          { label: "Turned up", value: `${rel.showed} of ${rel.past}` },
+          { label: "Clocked in on time", value: rel.clockIns >= SMALL_N ? share(rel.onTime, rel.clockIns) : `${rel.onTime} of ${rel.clockIns}`, sub: "Within ten minutes of the start." },
+          { label: "Pulled out after booking", value: rel.pulled },
+          { label: "Hours disagreed", value: `${rel.disagreed} of ${rel.ofWorked}` },
+        ]} />
+
+        <Facts title="Hours by trade" hint="Everywhere they have worked, not just your sites." facts={[
+          ...(rec.trades.length ? rec.trades.map((t) => ({ label: t.role, value: `${t.hours}h` })) : [{ label: "No hours yet", value: "—" }]),
+          { label: "Sites worked", value: rec.sites },
+          { label: "Bosses who'd book them again", value: rec.rehires },
+        ]} />
+
+        <Heatmap weeks={rec.weeks} title="Days on the tools"
+          sub={rec.days === 0 ? "No shifts on the record yet." : rec.streak >= 2 ? `${rec.streak} weeks in a row` : undefined}
+          label={`Days on the tools: ${rec.days} days worked in the last 52 weeks.`} />
 
         <div className="card space-y-2">
           <div className="text-lg font-bold">Cards and licences</div>

@@ -1,43 +1,77 @@
-import { sql } from "@/lib/db";
 import { requireRole } from "@/lib/session";
 import { Header, Page } from "@/components/Header";
-import { Big, Row } from "@/components/ui";
-import { statusWords } from "@/lib/subscription";
-import { logout } from "@/actions/auth";
-import { savedPushFingerprint } from "@/lib/alerts";
-import { AlertsToggle } from "@/components/AlertsToggle";
-import { PasskeysSection } from "@/components/PasskeysSection";
-import { listPasskeys } from "@/lib/passkeys";
+import { Row } from "@/components/ui";
+import { Heatmap } from "@/components/Heatmap";
+import { RecordTiles } from "@/components/RecordTiles";
+import { Facts } from "@/components/Facts";
+import { money } from "@/lib/award";
+import { matchFeeCents, money as cents, statusWords } from "@/lib/subscription";
+import { matchesThisPeriod } from "@/lib/invoicing";
+import { bossRecord, fillWords, share, SMALL_N, WINDOW_DAYS } from "@/lib/profileStats";
 export const dynamic = "force-dynamic";
+
 export default async function BossMe() {
   const u = await requireRole("boss");
-  const [[b], passkeys] = await Promise.all([
-    sql`SELECT b.company, b.abn, b.subscription_status AS status, b.trial_ends_at, b.period_ends_at,
-      st.approved_count, st.approve_hours_avg, st.pay_days_avg
-    FROM bosses b LEFT JOIN boss_stats st ON st.boss_id = b.user_id WHERE b.user_id = ${u.id}`,
-    listPasskeys(u.id),
-  ]);
+  const [r, matches] = await Promise.all([bossRecord(u.id), matchesThisPeriod(u.id)]);
+  const p = r.pulse;
+
+  // Under five approvals there is nothing to average, so the line says "new" instead of a number nobody can trust.
+  const speed = [r.approveHours != null ? `approves hours in ${r.approveHours} h` : null, r.payDays != null ? `pays in ${r.payDays} days` : null].filter(Boolean).join(" · ");
+  const seen = r.approved >= SMALL_N && speed
+    ? `Workers see: ${speed}`
+    : `New — ${r.approved} shift${r.approved === 1 ? "" : "s"} approved`;
+
   return (
     <>
       <Header title="Me" />
       <Page>
-        <div className="card"><div className="text-xl font-extrabold">{u.name}</div><div className="text-steel">{b?.company ?? "Company details missing — tell us and we'll fix it."}{b?.abn ? ` · ABN ${b.abn}` : ""}</div><div className="text-steel">{u.phone}</div></div>
-        <div className="text-lg font-bold">What workers see about you</div>
-        <div className="grid grid-cols-3 gap-2">
-          <Big n={b?.approved_count ?? 0} label="shifts approved" />
-          <Big n={b?.approve_hours_avg != null ? `${b.approve_hours_avg}h` : "—"} label="to approve hours" />
-          <Big n={b?.pay_days_avg != null ? `${b.pay_days_avg}d` : "—"} label="to pay" />
+        <div className="card">
+          <div className="text-xl font-extrabold">{r.company ?? u.name}</div>
+          {r.abn && <div className="text-steel num">ABN {r.abn}</div>}
+          <div className="text-steel">{r.company ? u.name : ""}{r.company ? " · " : ""}{u.phone}</div>
+          <div className="mt-1 num">{seen}</div>
         </div>
-        {process.env.VAPID_PUBLIC_KEY && <AlertsToggle publicKey={process.env.VAPID_PUBLIC_KEY} savedPush={await savedPushFingerprint(u.id)} role="boss" />}
-        <PasskeysSection userId={u.id} passkeys={passkeys} />
+        {!r.company && <Row href="/boss/me/settings" tone="orange" title="Company details missing" sub="Your company name goes on the top of every invoice. Add it in Settings." />}
+
+        <RecordTiles year={tiles(r.tiles.year)} all={tiles(r.tiles.all)} />
+
+        <Heatmap weeks={r.weeks}
+          title="People on site"
+          sub={r.days === 0 ? "Book someone and this fills in." : "Darker = more people."}
+          label={`People on site: workers on the tools on ${r.days} days in the last 52 weeks.`} />
+
+        <Facts title={`Hiring pulse · last ${WINDOW_DAYS} days`} facts={[
+          { label: "Shifts filled", value: p.spots === 0 ? "—" : p.shifts >= SMALL_N ? `${Math.round((100 * p.taken) / p.spots)}%` : `${p.taken} of ${p.spots}`, sub: "Spots taken out of spots posted." },
+          { label: "Typical time to fill", value: fillWords(p.fillMin), sub: "From posting it to the first worker saying yes." },
+          { label: "No-shows on your sites", value: p.noShows, sub: `Out of ${p.pastShifts} past shift${p.pastShifts === 1 ? "" : "s"}. Rained-off days don't count.` },
+          { label: "Bookings by returning workers", value: share(p.returning, p.bookings) },
+        ]} />
+
+        <Facts title="Your regulars" hint="Most hours with you."
+          facts={r.regulars.length
+            ? r.regulars.map((w) => ({ label: w.name, value: `${w.hours}h`, href: `/boss/workers/${w.id}` }))
+            : [{ label: "Nobody yet", value: "—" }]} />
+
+        <Facts title="Wages by site · this month"
+          facts={r.sites.length ? r.sites.map((s) => ({ label: s.name, value: money(s.wages) })) : [{ label: "Nothing approved this month", value: "—" }]} />
+
+        <Facts facts={[{ label: "Hours disagreed by workers", value: `${r.disputes.n} of ${r.disputes.of}` }]}
+          foot="Workers see this too. Ring them before approving fewer hours than they recorded." />
+
+        <Facts title="OnSite" facts={[
+          { label: "Introductions this month", value: `${matches} · ${cents(matchFeeCents() * matches)}`, sub: "A worker OnSite found you, first time their hours were approved." },
+        ]} />
         {/* Billing lives on its own screen; this says where the boss stands without opening it. */}
-        <Row href="/boss/billing" title="Billing" sub={statusWords({ status: b?.status ?? "trialing", trial_ends_at: b?.trial_ends_at ?? null, period_ends_at: b?.period_ends_at ?? null }).title} />
-        <div className="card space-y-2">
-          <div className="text-lg font-bold">The deal, in plain words</div>
-          <p>You are the employer for every shift you post. Casual, at the Award rate or more. Super goes on top. The worker keeps the same hours record you do. You pay them your usual way, then tap <b>Mark paid</b>.</p>
-        </div>
-        <form action={logout}><button className="btn-ghost">Sign out</button></form>
+        <Row href="/boss/billing" title="Billing" sub={statusWords({ status: r.status, trial_ends_at: r.trial_ends_at, period_ends_at: r.period_ends_at }).title} />
+        <Row href="/boss/me/settings" title="Settings" sub="Company details, alerts, sign-in, sign out." />
       </Page>
     </>
   );
 }
+
+const tiles = (t: { shifts: number; hours: number; wages: number; workers: number }) => [
+  { label: "Shifts staffed", n: t.shifts },
+  { label: "Hours bought", n: t.hours },
+  { label: "Wages approved", money: t.wages },
+  { label: "Workers", n: t.workers },
+];

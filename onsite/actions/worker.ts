@@ -114,6 +114,7 @@ export async function disagree(bookingId: string) {
     FROM b JOIN shifts s ON s.id = b.shift_id`;
   sendAlertsSoon();
   revalidatePath("/worker/me");
+  revalidatePath("/worker/me/shifts");
 }
 
 export async function updateMe(form: FormData) {
@@ -129,6 +130,7 @@ export async function updateMe(form: FormData) {
      WHERE user_id = ${u.id}`,
     sql`UPDATE users SET name = ${String(form.get("name") || u.name).trim().slice(0, 80) || u.name} WHERE id = ${u.id}`]);
   await createSession(u.id); // name lives in the cookie
+  revalidatePath("/worker/me/settings");
   revalidatePath("/worker/me");
 }
 
@@ -171,6 +173,7 @@ export async function saveProfile(form: FormData) {
     sql`UPDATE users SET name = ${name} WHERE id = ${u.id}`,
   ]);
   if (name !== u.name) await createSession(u.id);   // name lives in the cookie
+  revalidatePath("/worker/me/edit");
   revalidatePath("/worker/me");
   return { ok: true };
 }
@@ -178,6 +181,7 @@ export async function saveProfile(form: FormData) {
 export async function removePhoto() {
   const u = await requireRole("worker");
   await sql`UPDATE workers SET photo = NULL WHERE user_id = ${u.id}`;
+  revalidatePath("/worker/me/edit");
   revalidatePath("/worker/me");
 }
 
@@ -221,6 +225,7 @@ export async function saveLicence(form: FormData) {
       RETURNING worker_id
     ) SELECT worker_id FROM l`;
   await recomputeTickets(u.id);
+  revalidatePath("/worker/me/edit");
   revalidatePath("/worker/me");
   return { ok: true, status: result.status, note: result.note };
 }
@@ -230,6 +235,7 @@ export async function removeLicence(kind: string) {
   if (!["WC", "LF", "WP", "DG", "SB"].includes(kind)) return;
   await sql`DELETE FROM licences WHERE worker_id = ${u.id} AND kind = ${kind}`;
   await recomputeTickets(u.id);
+  revalidatePath("/worker/me/edit");
   revalidatePath("/worker/me");
 }
 

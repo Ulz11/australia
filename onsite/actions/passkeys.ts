@@ -1,6 +1,5 @@
 "use server";
 import { headers } from "next/headers";
-import { redirect } from "next/navigation";
 import type { PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsJSON } from "@simplewebauthn/server";
 import { sql } from "@/lib/db";
 import { createSession, getUser, signedInPath } from "@/lib/session";
@@ -34,8 +33,14 @@ export async function passkeyLoginOptions(): Promise<{ ok: true; options: Public
   return { ok: true, options: await authenticationOptions(rp) };
 }
 
-/** Signs in exactly as a text code does (actions/auth.ts verifyCode): the same session cookie, the same redirect. */
-export async function passkeySignIn(response: unknown, invite?: string): Promise<Refusal> {
+/**
+ * Signs in exactly as a text code does (actions/auth.ts verifyCode): the same session cookie, the same place
+ * afterwards. It hands the path back instead of redirecting itself — Next delivers a redirect thrown inside an
+ * action to an imperative caller as a rejected promise, and the login screen can't tell that from a real
+ * failure, so signing in used to flash "Face ID sign-in didn't work" a beat before the new screen landed.
+ * The caller navigates (app/login/PasskeySignIn.tsx).
+ */
+export async function passkeySignIn(response: unknown, invite?: string): Promise<{ ok: true; to: string } | Refusal> {
   const rp = relyingParty();
   if (!rp) return refuse("off");
   const ip = await clientIp();
@@ -43,7 +48,7 @@ export async function passkeySignIn(response: unknown, invite?: string): Promise
   const r = await verifyLogin(rp, response);
   if (!r.ok) return refuse(r.reason);
   await createSession(r.userId);
-  redirect(signedInPath(r, typeof invite === "string" ? invite.trim().slice(0, 20) : ""));
+  return { ok: true, to: signedInPath(r, typeof invite === "string" ? invite.trim().slice(0, 20) : "") };
 }
 
 // ------------------------------------------------------------------ this person's passkeys
@@ -69,8 +74,8 @@ export async function passkeyRegister(response: unknown, device?: { touch?: bool
   const label = deviceLabel((await headers()).get("user-agent") ?? "", { touch: device?.touch === true });
   const r = await verifyRegistration(rp, u.id, response, label);
   if (!r.ok) return refuse(r.reason);
-  revalidatePath("/boss/me");
-  revalidatePath("/worker/me");
+  revalidatePath("/boss/me/settings");
+  revalidatePath("/worker/me/settings");
   return { ok: true, credentialId: r.credentialId };
 }
 
@@ -80,6 +85,6 @@ export async function removePasskey(id: string): Promise<void> {
   if (!u) return;
   if (!isUuid(id)) return;
   await sql`DELETE FROM passkeys WHERE id = ${id} AND user_id = ${u.id}`;
-  revalidatePath("/boss/me");
-  revalidatePath("/worker/me");
+  revalidatePath("/boss/me/settings");
+  revalidatePath("/worker/me/settings");
 }

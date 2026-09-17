@@ -7,7 +7,7 @@ import { clampRate, normaliseTickets, payForShift, checkOffer } from "@/lib/rule
 import { runMatchingRound } from "@/lib/matching";
 import { fmtDay, todayIso } from "@/lib/util";
 import { bookWorker } from "@/lib/booking";
-import { isUuid, isDay, isTime, num, isLatLng } from "@/lib/validate";
+import { isUuid, isDay, isTime, num, isLatLng, cleanAbn } from "@/lib/validate";
 import { sendAlertsSoon } from "@/lib/alerts";
 import { hit, refund, SHIFT_POSTS_PER_HOUR } from "@/lib/ratelimit";
 import { hasLines, readPostLines, type PostLine } from "@/lib/posts";
@@ -241,6 +241,22 @@ export async function setPayMode(mode: "award" | "flat") {
   const u = await requireRole("boss");
   await sql`UPDATE bosses SET pay_mode = ${mode} WHERE user_id = ${u.id}`;
   revalidatePath("/boss/pay");
+}
+
+/**
+ * Me → Settings: the company name and ABN that go on the top of every invoice. The name is required; the ABN
+ * is optional and is checked, not just counted — a number that fails the ATO's own sum is handed straight back
+ * rather than stored, because a wrong ABN on an invoice is worse than no ABN at all. Only digits are kept.
+ */
+export async function saveCompany(form: FormData) {
+  const u = await requireRole("boss");
+  const company = String(form.get("company") || "").trim().slice(0, 80);
+  const typed = String(form.get("abn") || "").trim();
+  if (!company) redirect("/boss/me/settings?err=company");
+  const abn = typed ? cleanAbn(typed) : null;
+  if (typed && !abn) redirect("/boss/me/settings?err=abn");
+  await sql`UPDATE bosses SET company = ${company}, abn = ${abn} WHERE user_id = ${u.id}`;
+  redirect("/boss/me/settings?saved=1");
 }
 
 export async function updateCrew(form: FormData) {

@@ -24,7 +24,7 @@ describe("what the phone shows", () => {
     expect(n("dispute", "boss", "x", null).url).toBe("/boss");
   });
   it("a card re-check result opens My cards, has a title of its own, and is never worth a text", () => {
-    expect(n("licence_check", "worker", "Your White Card checked out with SafeWork NSW.", null)).toMatchObject({ title: "Card checked", url: "/worker/me", urgent: false, tag: "licence_check:n1" });
+    expect(n("licence_check", "worker", "Your White Card checked out with SafeWork NSW.", null)).toMatchObject({ title: "Card checked", url: "/worker/me/edit", urgent: false, tag: "licence_check:n1" });
     expect(SMS_KINDS.has("licence_check")).toBe(false);
     expect([...SMS_KINDS]).toEqual(["shift_match"]);
   });
