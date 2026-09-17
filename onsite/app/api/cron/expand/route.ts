@@ -5,6 +5,7 @@ import { closeBillingPeriods } from "@/lib/invoicing";
 import { qpayConfigured } from "@/lib/qpay";
 import { deliverAlerts } from "@/lib/alerts";
 import { remindShifts } from "@/lib/reminders";
+import { sweepCrewInvites } from "@/lib/crew";
 import { sweepRateLimits } from "@/lib/ratelimit";
 import { recheckLicences } from "@/lib/licenceRecheck";
 import { warmAudToMnt } from "@/lib/fxRate";
@@ -45,6 +46,8 @@ export async function GET(req: Request) {
     console.error("reminders run failed", e?.code ?? e?.name ?? "error");
     return { error: "reminders failed" };
   });
+  // A number a boss typed in is kept only long enough to recognise the person if they sign up (90 days).
+  const crew = await sweepCrewInvites().catch(() => ({ error: "crew sweep failed" }));
   const alerts = await deliverAlerts().catch((e) => ({ error: String(e?.message ?? e) }));                  // last, so this round's offers and card results go too
-  return Response.json({ ...matching, ...(qpay ? { qpay } : {}), fx, billing, licences, reminders, alerts });
+  return Response.json({ ...matching, ...(qpay ? { qpay } : {}), fx, billing, licences, reminders, crew, alerts });
 }

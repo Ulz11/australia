@@ -11,6 +11,7 @@ import { addDays, fmtTime, todayIso } from "@/lib/util";
 import { nextShiftWords } from "@/lib/reminders";
 import { savedPushFingerprint } from "@/lib/alerts";
 import { AlertsToggle } from "@/components/AlertsToggle";
+import { NewCrewCard, type CrewRow } from "@/components/CrewsSection";
 export const dynamic = "force-dynamic";
 
 /** "212 Marrickville Rd, Marrickville" → "Marrickville". A worker knows the suburb, not the street. */
@@ -18,7 +19,7 @@ const suburbOf = (address: string | null) => (address ?? "").split(",").pop()?.t
 
 export default async function WorkerHome() {
   const u = await requireRole("worker");
-  const [[w], avail, offers, shifts, bookingsAll, notes] = await Promise.all([
+  const [[w], avail, offers, shifts, bookingsAll, notes, crews] = await Promise.all([
     // usual_days is the pattern; `pattern_live` is whether it still counts (worker_free() stops it after 14 quiet
     // days), and `any_days` says whether this worker has ever answered for a single day — a first-timer sees
     // Mon–Fri offered in the card, unsaved.
@@ -30,7 +31,14 @@ export default async function WorkerHome() {
     offersFor(u.id),
     openShiftsNear(u.id),
     myBookings(u.id),
-    sql`SELECT id, kind, body FROM notifications WHERE user_id = ${u.id} AND read_at IS NULL AND kind <> 'shift_match' ORDER BY created_at DESC LIMIT 3`,
+    sql`SELECT id, kind, body FROM notifications WHERE user_id = ${u.id} AND read_at IS NULL AND kind NOT IN ('shift_match','crew_added','crew_joined') ORDER BY created_at DESC LIMIT 3`,
+    // Crews a boss put this worker on in the last week. Said once, on the screen, with the way out beside it —
+    // rather than as a notification they can only read.
+    sql<CrewRow[]>`SELECT ci.boss_id, bo.company, us.name AS boss_name
+       FROM crew_invites ci JOIN bosses bo ON bo.user_id = ci.boss_id JOIN users us ON us.id = ci.boss_id
+       JOIN crew c ON c.boss_id = ci.boss_id AND c.worker_id = ${u.id}
+       WHERE ci.worker_id = ${u.id} AND ci.joined_at > now() - interval '7 days'
+       ORDER BY ci.joined_at DESC LIMIT 2`,
   ]);
   const today = todayIso();
   const bookings = bookingsAll.filter((b) => ["accepted", "clocked_in", "clocked_out"].includes(b.status));
@@ -51,6 +59,8 @@ export default async function WorkerHome() {
             <Say tone="orange" icon={MapPin} title="Tell us where you live" sub="Tap here. We only show shifts near you." />
           </Link>
         )}
+
+        {crews.map((c) => <NewCrewCard key={c.boss_id} crew={c} />)}
 
         {soon && (
           <Link href="/worker/shift" className="say-dark block">

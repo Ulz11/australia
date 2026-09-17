@@ -8,9 +8,14 @@ import { runMatchingRound } from "@/lib/matching";
 import { fmtDay, todayIso } from "@/lib/util";
 import { bookWorker } from "@/lib/booking";
 import { isUuid, isDay, isTime, num, isLatLng, cleanAbn } from "@/lib/validate";
-import { sendAlertsSoon } from "@/lib/alerts";
+import { sendAlertsSoon, SMS_SHARE_PER_BOSS } from "@/lib/alerts";
 import { hit, refund, SHIFT_POSTS_PER_HOUR } from "@/lib/ratelimit";
 import { hasLines, readPostLines, type PostLine } from "@/lib/posts";
+import { sendSms, smsProvider } from "@/lib/sms";
+import {
+  INVITE_DAYS, INVITES_PER_DAY, MAX_IMPORT, crewAddedWords, crewInviteSms, crewJoinUrl, crewLabel, parseCrewList,
+  type CrewImport, type CrewPreview, type CrewTextResult,
+} from "@/lib/crew";
 import { randomUUID } from "node:crypto";
 
 export async function createProject(form: FormData) {
@@ -270,15 +275,145 @@ export async function updateCrew(form: FormData) {
   revalidatePath(`/boss/workers/${worker_id}`);
 }
 
-export async function addCrewByPhone(form: FormData) {
+/**
+ * "Add your crew" (app/boss/workers/add). The boss pastes or picks a list of numbers; this says what would
+ * happen to each one, before anything does. Never trusts a preview the browser worked out for itself —
+ * importCrew re-reads the same text from scratch.
+ *
+ * Reading the list tells the boss which numbers already have an OnSite account, so it is capped per boss per
+ * hour: a crew is a few dozen people, and this shouldn't become a way to walk numbers.
+ */
+export async function previewCrew(text: string): Promise<CrewPreview> {
   const u = await requireRole("boss");
-  const { normalisePhone } = await import("@/lib/sms");
-  const phone = normalisePhone(String(form.get("phone") || ""));
-  if (!phone) return;
-  const [w] = await sql`SELECT w.user_id FROM workers w JOIN users us ON us.id = w.user_id WHERE us.phone = ${phone}`;
-  if (!w) redirect(`/boss/workers?notfound=1`);
-  await sql`INSERT INTO crew (boss_id, worker_id, rate) VALUES (${u.id}, ${w.user_id}, ${clampRate(0)}) ON CONFLICT DO NOTHING`;
-  redirect(`/boss/workers/${w.user_id}`);
+  if (!(await hit(`crew-preview:${u.id}`, 40, 3600))) return { ok: false, error: "That's a lot of lists at once. Try again in a little while." };
+  const parsed = parseCrewList(String(text ?? "").slice(0, 8000));
+  const known = parsed.entries.length
+    ? await sql<{ phone: string }[]>`SELECT us.phone FROM users us JOIN workers w ON w.user_id = us.id WHERE us.phone = ANY(${parsed.entries.map((e) => e.phone)})`
+    : [];
+  const onSite = new Set(known.map((k) => k.phone));
+  return {
+    ok: true,
+    rows: parsed.entries.map((e) => ({ phone: e.phone, name: e.name, label: crewLabel(e), known: onSite.has(e.phone) })),
+    dropped: parsed.dropped,
+    overflowed: parsed.overflowed,
+  };
+}
+
+/**
+ * Do it. Someone already on OnSite joins the crew and is told; a number nobody knows becomes an invite only
+ * this boss can see, kept for 90 days (migration 019) and then swept by the cron.
+ *
+ * A worker a boss brought themselves is not a worker OnSite found them, so neither of these can ever become a
+ * billable introduction — lib/booking.ts checks the crew and the invites before it writes one.
+ */
+export async function importCrew(text: string): Promise<CrewImport> {
+  const u = await requireRole("boss");
+  const parsed = parseCrewList(String(text ?? "").slice(0, 8000));
+  if (!parsed.entries.length) return { ok: false, error: "No mobile numbers in that list." };
+  const [me] = await sql<{ company: string; invite_code: string | null }[]>`SELECT company, invite_code FROM bosses WHERE user_id = ${u.id}`;
+  if (!me) return { ok: false, error: "Add your company name in Settings first." };
+
+  const phones = parsed.entries.map((e) => e.phone);
+  const known = await sql<{ phone: string; user_id: string }[]>`
+    SELECT us.phone, w.user_id FROM users us JOIN workers w ON w.user_id = us.id WHERE us.phone = ANY(${phones})`;
+  const byPhone = new Map(known.map((k) => [k.phone, k.user_id]));
+  const joining = parsed.entries.filter((e) => byPhone.has(e.phone));
+  const inviting = parsed.entries.filter((e) => !byPhone.has(e.phone));
+
+  // Only the invites cost anything to send, so only they are counted. Refused in one piece: half an import is
+  // worse than none, because the boss can't see which half landed.
+  if (inviting.length && !(await hit(`crew-invite:${u.id}`, INVITES_PER_DAY, 86400, inviting.length))) {
+    await refund(`crew-invite:${u.id}`, 86400, inviting.length);
+    return { ok: false, error: `That's over ${INVITES_PER_DAY} invites today. Try the rest tomorrow.` };
+  }
+
+  // A crew row the boss didn't already have, and one notification for each person who really joined. The
+  // invite row is written for them too, already joined: it is the record that this boss brought this person,
+  // which is what keeps them from ever being billed as an introduction (lib/booking.ts) even if the boss later
+  // takes them off the crew list.
+  if (joining.length) {
+    const ids = joining.map((e) => byPhone.get(e.phone)!);
+    await sql`
+      INSERT INTO crew_invites ${sql(joining.map((e) => ({ boss_id: u.id, phone: e.phone, name: e.name, worker_id: byPhone.get(e.phone)! })), "boss_id", "phone", "name", "worker_id")}
+      ON CONFLICT (boss_id, phone) DO UPDATE SET
+        name = COALESCE(EXCLUDED.name, crew_invites.name), worker_id = EXCLUDED.worker_id,
+        joined_at = COALESCE(crew_invites.joined_at, now())`;
+    await sql`UPDATE crew_invites SET joined_at = COALESCE(joined_at, now()) WHERE boss_id = ${u.id} AND worker_id = ANY(${ids}::uuid[])`;
+    await sql`
+      WITH c AS (
+        INSERT INTO crew (boss_id, worker_id, type, rate)
+        SELECT ${u.id}, w, 'casual', NULL FROM unnest(${ids}::uuid[]) w
+        ON CONFLICT (boss_id, worker_id) DO NOTHING
+        RETURNING worker_id
+      )
+      INSERT INTO notifications (user_id, shift_id, kind, body)
+      SELECT worker_id, NULL, 'crew_added', ${crewAddedWords(me.company)} FROM c`;
+    sendAlertsSoon();
+  }
+  if (inviting.length) {
+    await sql`
+      INSERT INTO crew_invites ${sql(inviting.map((e) => ({ boss_id: u.id, phone: e.phone, name: e.name })), "boss_id", "phone", "name")}
+      ON CONFLICT (boss_id, phone) DO UPDATE SET
+        name = COALESCE(EXCLUDED.name, crew_invites.name),
+        invited_at = now(), expires_at = now() + make_interval(days => ${INVITE_DAYS})`;
+  }
+  revalidatePath("/boss/workers");
+  return {
+    ok: true, added: joining.length, invited: inviting.length,
+    code: me.invite_code, company: me.company, firstName: (u.name ?? "").split(" ")[0] || me.company,
+  };
+}
+
+/**
+ * "Text them for me" — one text per invite, ever (`texted_at`), and only when a provider is configured.
+ * Fixed wording, no names: a text to someone who has never used OnSite costs money and nothing a boss typed
+ * belongs in it (lib/crew.ts crewInviteSms).
+ */
+export async function textCrewInvites(): Promise<CrewTextResult> {
+  const u = await requireRole("boss");
+  if (!smsProvider().provider) return { ok: false, error: "Texting isn't switched on. Send them your link instead." };
+  const [me] = await sql<{ invite_code: string | null }[]>`SELECT invite_code FROM bosses WHERE user_id = ${u.id}`;
+  const base = (process.env.NEXT_PUBLIC_BASE_URL || "").replace(/\/+$/, "");
+  if (!me?.invite_code || !base) return { ok: false, error: "Texting isn't switched on. Send them your link instead." };
+  const waiting = await sql<{ id: string; phone: string }[]>`
+    SELECT id, phone FROM crew_invites
+    WHERE boss_id = ${u.id} AND joined_at IS NULL AND texted_at IS NULL AND expires_at > now()
+    ORDER BY invited_at DESC LIMIT ${MAX_IMPORT}`;
+  if (!waiting.length) return { ok: true, sent: 0 };
+
+  const body = crewInviteSms(crewJoinUrl(base, me.invite_code));
+  let sent = 0;
+  for (const w of waiting) {
+    // The same budgets a shift offer spends, so crew invites can never drain the app's texting money.
+    const charged: [string, number][] = [];
+    const spend = async (key: string, limit: number, win: number) => {
+      if (await hit(key, limit, win)) { charged.push([key, win]); return true; }
+      await refund(key, win);
+      return false;
+    };
+    const perBoss = Math.ceil((Number(process.env.SMS_ALERTS_PER_HOUR) || 500) * SMS_SHARE_PER_BOSS);
+    if (!(await spend(`sms:boss:${u.id}`, perBoss, 3600)) || !(await spend("sms:all", Number(process.env.SMS_ALERTS_PER_HOUR) || 500, 3600))) {
+      await Promise.all(charged.map(([k, win]) => refund(k, win)));
+      break;
+    }
+    const r = await sendSms(w.phone, body);
+    if (r.sent || r.stub) {
+      await sql`UPDATE crew_invites SET texted_at = now() WHERE id = ${w.id}`;     // one text per invite, whatever happens next
+      if (r.sent) sent++;
+    } else {
+      await Promise.all(charged.map(([k, win]) => refund(k, win)));                // the provider refused it; it costs them nothing
+    }
+  }
+  revalidatePath("/boss/workers");
+  return { ok: true, sent };
+}
+
+/** Take an invited number off the list. Only ever one of the caller's own. */
+export async function removeCrewInvite(id: string) {
+  const u = await requireRole("boss");
+  if (!isUuid(id)) return;
+  await sql`DELETE FROM crew_invites WHERE id = ${id} AND boss_id = ${u.id}`;
+  revalidatePath("/boss/workers");
 }
 
 export async function removeFromCrew(workerId: string) {

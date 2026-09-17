@@ -35,6 +35,18 @@ export async function setUsualDays(days: number[]) {
   revalidatePath("/worker");
 }
 
+/**
+ * "Crews you're in" → Leave. A crew row only decides who can book this worker directly; taking it away is
+ * their business and nobody else's, so the boss is not told. They stay on that boss's shifts either way.
+ */
+export async function leaveCrew(bossId: string) {
+  const u = await requireRole("worker");
+  if (!isUuid(bossId)) return;
+  await sql`DELETE FROM crew WHERE boss_id = ${bossId} AND worker_id = ${u.id}`;
+  revalidatePath("/worker");
+  revalidatePath("/worker/me/settings");
+}
+
 export async function takeShift(shiftId: string) {
   const u = await requireRole("worker");
   if (!isUuid(shiftId)) return { error: "This shift is gone." };

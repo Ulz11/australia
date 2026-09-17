@@ -75,9 +75,10 @@ export default async function Terms() {
         <ul className="list-disc pl-6 space-y-1">
           <li>
             <b>{fee} for a new worker OnSite found you.</b> It is charged once per worker, when you first approve
-            their hours and the hours are above zero. Every shift with that worker afterwards is free. A worker you
-            brought yourself — someone already on your workers list, a direct booking, <i>same again tomorrow</i> —
-            was not found by OnSite, so there is no fee for them.
+            their hours and the hours are above zero. Every shift with that worker afterwards is free.
+            <b> A worker you brought yourself is never a worker OnSite found you</b>, so there is no fee for them,
+            ever: anyone you added to your crew list or invited by their number, a shift booked straight to one
+            person, and <i>same again tomorrow</i>.
           </li>
           <li>
             <b>{subscription} a month for the pay tools</b>, after <b>{days} day{days === 1 ? "" : "s"} free</b> that
@@ -115,8 +116,13 @@ export default async function Terms() {
           on both records. A worker can&apos;t block a boss.
         </p>
         <p>
-          <b>Leaving a crew.</b> A boss can take someone off their workers list at any time. It only changes who they
-          can book directly — it is not a block, and the worker is not told.
+          <b>Leaving a crew.</b> A boss can take someone off their workers list at any time, and a worker can leave a
+          crew themselves in Me, then Settings. Either way it only changes who can book whom directly: shifts still
+          reach that worker through matching, it is not a block, and nobody is told.
+        </p>
+        <p>
+          <b>A number on a crew list.</b> A boss can put a mobile number on their crew list before that person has
+          an OnSite account. Only that boss ever sees it. If nobody signs up with it, we delete it after 90 days.
         </p>
         <p>
           <b>Deleting an account.</b> There is no delete button yet. Ask us and we will delete it. Deleting an account

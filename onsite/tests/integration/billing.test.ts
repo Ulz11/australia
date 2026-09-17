@@ -149,9 +149,9 @@ describe.skipIf(!process.env.DATABASE_URL)("billing: introductions, match fees a
     await bookThrough(ids.boss, ids.w2, true);
     expect(await intro(ids.boss, ids.w2)).toBeNull();
 
-    // Typed into Workers off a phone number: not OnSite finding anyone.
+    // Brought in by the boss off a phone number: not OnSite finding anyone.
     as(ids.boss);
-    await swallow(() => boss.addCrewByPhone(fd({ phone: "0" + PHONES.w3.slice(3) })));
+    expect(await boss.importCrew("0" + PHONES.w3.slice(3))).toMatchObject({ ok: true, added: 1, invited: 0 });
     expect(await sql`SELECT 1 FROM crew WHERE boss_id = ${ids.boss} AND worker_id = ${ids.w3}`).toHaveLength(1);
     expect(await intro(ids.boss, ids.w3)).toBeNull();
   });

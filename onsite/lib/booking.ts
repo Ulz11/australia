@@ -59,10 +59,18 @@ export async function bookWorker(a: BookArgs): Promise<BookResult> {
     // OnSite found this worker for this boss: record the introduction the first time, in the same
     // transaction as the booking. Nothing is charged here — the $2 lands only when the boss approves
     // hours above zero (actions/boss.ts), and only ever once per pair.
+    //
+    // Unless the boss brought them themselves. Someone already on this boss's crew list, or on their invite
+    // list from before they signed up (migration 019), was never OnSite's introduction to make — so no row is
+    // written, and a boss importing their own crew is never charged a match fee for them.
     if (a.via && !s.direct_worker_id)
       await tx`
         INSERT INTO introductions (boss_id, worker_id, via, first_booking_id)
-        VALUES (${s.boss_id}, ${a.workerId}, ${a.via}, ${booking.id})
+        SELECT ${s.boss_id}, ${a.workerId}, ${a.via}, ${booking.id}
+        WHERE NOT EXISTS (SELECT 1 FROM crew c WHERE c.boss_id = ${s.boss_id} AND c.worker_id = ${a.workerId})
+          AND NOT EXISTS (
+            SELECT 1 FROM crew_invites ci JOIN users u ON u.phone = ci.phone
+            WHERE ci.boss_id = ${s.boss_id} AND u.id = ${a.workerId})
         ON CONFLICT (boss_id, worker_id) DO NOTHING`;
     await tx`INSERT INTO availability (worker_id, day, status) VALUES (${a.workerId}, ${s.day}, 'free')
              ON CONFLICT (worker_id, day) DO UPDATE SET status = 'free'`;

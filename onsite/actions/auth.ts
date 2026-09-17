@@ -8,9 +8,10 @@ import { normalisePhone, sendSms } from "@/lib/sms";
 import { isLatLng, isUuid } from "@/lib/validate";
 import { pinFor } from "@/lib/place";
 import { OTP, hashCode, inviteCode, newCode, phoneAllowed } from "@/lib/otp";
+import { crewJoinedWords } from "@/lib/crew";
 import { clientIp, hit, refund } from "@/lib/ratelimit";
 import { verifyOtp } from "@/lib/otpVerify";
-import { PUSH_COOKIE } from "@/lib/alerts";
+import { PUSH_COOKIE, sendAlertsSoon } from "@/lib/alerts";
 import { devShowOtpOn } from "@/lib/flags";
 import { BETA_REFUSAL, betaInviteOnly, mayRequestCode } from "@/lib/beta";
 import { PRIVACY_VERSION } from "@/lib/privacy";
@@ -179,9 +180,18 @@ export async function completeOnboarding(form: FormData) {
     const trialEnd = trialEndFrom(new Date());
     // The free trial starts the moment the account becomes a boss, and the subscription starts by
     // itself when it runs out — both said plainly under the Boss choice on this screen.
-    await sql`INSERT INTO bosses (user_id, company, abn, trial_ends_at, subscription_status, period_started_at, period_ends_at)
-              VALUES (${u.id}, ${company}, ${abn}, ${trialEnd}, 'trialing', ${trialEnd}, ${addMonths(trialEnd, 1)})
-              ON CONFLICT (user_id) DO UPDATE SET company = EXCLUDED.company, abn = EXCLUDED.abn`;
+    // The invite code is their crew link (/join/c/<code>); codes are short, so a clash is retried.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        await sql`INSERT INTO bosses (user_id, company, abn, trial_ends_at, subscription_status, period_started_at, period_ends_at, invite_code)
+                  VALUES (${u.id}, ${company}, ${abn}, ${trialEnd}, 'trialing', ${trialEnd}, ${addMonths(trialEnd, 1)}, ${inviteCode()})
+                  ON CONFLICT (user_id) DO UPDATE SET company = EXCLUDED.company, abn = EXCLUDED.abn,
+                    invite_code = COALESCE(bosses.invite_code, EXCLUDED.invite_code)`;
+        break;
+      } catch (e: unknown) {
+        if (attempt === 4 || !String((e as Error).message).includes("invite_code")) throw e;
+      }
+    }
     await createSession(u.id);
     await offerPasskeyNextScreen();
     redirect("/boss");
@@ -189,7 +199,12 @@ export async function completeOnboarding(form: FormData) {
     const [lng, lat] = pinFor(Number(form.get("lng")), Number(form.get("lat")), "suburb");   // a home is kept to ~1 km, whatever the form sent
     const label = String(form.get("home_label") || "");
     const invite = String(form.get("invite") || "").trim().toUpperCase();
-    const inviter = invite ? (await sql`SELECT user_id FROM workers WHERE invite_code = ${invite}`)[0]?.user_id ?? null : null;
+    // One code, two things it could be: a mate's invite code, or a boss's crew link (/join/c/<code>).
+    const [owner] = invite
+      ? await sql`SELECT (SELECT user_id FROM workers WHERE invite_code = ${invite}) AS mate,
+                         (SELECT user_id FROM bosses WHERE invite_code = ${invite}) AS boss`
+      : [{ mate: null, boss: null }];
+    const inviter = owner.mate ?? null;
     const hasPin = isLatLng(lat, lng);
     // invite codes are short, so a clash is possible — try a few
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -203,8 +218,39 @@ export async function completeOnboarding(form: FormData) {
         if (attempt === 4 || !String((e as Error).message).includes("invite_code")) throw e;
       }
     }
+    await joinCrews(u.id, u.phone, name, owner.boss ?? null);
     await createSession(u.id);
     await offerPasskeyNextScreen();
     redirect("/worker");
   }
+}
+
+/**
+ * Crew lists this person was already on when they signed up: numbers a boss typed in before they had an
+ * account (migration 019), and the boss whose crew link they followed. Both put them straight into that
+ * boss's crew and tell the boss they're here. Not exported — only completeOnboarding calls it.
+ *
+ * Three statements rather than one: two of them write to the same crew_invites row when a boss both invited
+ * the number and sent the link, which one statement can't do.
+ */
+async function joinCrews(workerId: string, phone: string, name: string, linkBoss: string | null) {
+  if (linkBoss)
+    await sql`INSERT INTO crew_invites (boss_id, phone, name, joined_at, worker_id)
+              VALUES (${linkBoss}, ${phone}, ${name}, now(), ${workerId})
+              ON CONFLICT (boss_id, phone) DO UPDATE SET joined_at = COALESCE(crew_invites.joined_at, now()), worker_id = EXCLUDED.worker_id`;
+  const invited = await sql<{ boss_id: string }[]>`
+    UPDATE crew_invites SET joined_at = now(), worker_id = ${workerId}
+    WHERE phone = ${phone} AND joined_at IS NULL AND expires_at > now() RETURNING boss_id`;
+  const bosses = [...new Set([...invited.map((i) => i.boss_id), ...(linkBoss ? [linkBoss] : [])])];
+  if (!bosses.length) return;
+  await sql`
+    WITH c AS (
+      INSERT INTO crew (boss_id, worker_id, type, rate)
+      SELECT b, ${workerId}, 'casual', NULL FROM unnest(${bosses}::uuid[]) b
+      ON CONFLICT (boss_id, worker_id) DO NOTHING
+      RETURNING boss_id
+    )
+    INSERT INTO notifications (user_id, shift_id, kind, body)
+    SELECT boss_id, NULL, 'crew_joined', ${crewJoinedWords(name)} FROM c`;
+  sendAlertsSoon();
 }

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { AddressPin } from "@/components/AddressPin";
 import { Field } from "@/components/ui";
 
-export function RoleForm({ invite, defaultRole, error }: { invite?: string; defaultRole?: "boss" | "worker"; error?: string }) {
+export function RoleForm({ invite, defaultRole, defaultName, error }: { invite?: string; defaultRole?: "boss" | "worker"; defaultName?: string; error?: string }) {
   const [role, setRole] = useState<"boss" | "worker">(defaultRole ?? "worker");
   return (
     <>
@@ -27,7 +27,9 @@ export function RoleForm({ invite, defaultRole, error }: { invite?: string; defa
           </p>
         )}
       </Field>
-      <Field label="Your name"><input name="name" className="input" placeholder="First and last" required /></Field>
+      <Field label="Your name" hint={defaultName ? "A boss who put you on their crew list called you this. Change it if it's not right." : undefined}>
+        <input name="name" className="input" placeholder="First and last" defaultValue={defaultName ?? ""} required />
+      </Field>
       {role === "boss" ? (
         <>
           <Field label="Your company"><input name="company" className="input" placeholder="e.g. Marrickville Formwork" /></Field>
