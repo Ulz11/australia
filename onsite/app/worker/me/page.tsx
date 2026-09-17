@@ -19,17 +19,20 @@ import { payForShift } from "@/lib/rules";
 import { logout } from "@/actions/auth";
 import { savedPushFingerprint } from "@/lib/alerts";
 import { AlertsToggle } from "@/components/AlertsToggle";
+import { PasskeysSection } from "@/components/PasskeysSection";
+import { listPasskeys } from "@/lib/passkeys";
 export const dynamic = "force-dynamic";
 
 export default async function Me() {
   const u = await requireRole("worker");
-  const [[w], mates, all, licences] = await Promise.all([
+  const [[w], mates, all, licences, passkeys] = await Promise.all([
     sql`SELECT w.*, ST_Y(home::geometry) AS lat, ST_X(home::geometry) AS lng,
           CASE WHEN st.past_shifts > 0 THEN ROUND(100.0 * st.showed / st.past_shifts) END AS score, st.completed, st.cancels
         FROM workers w LEFT JOIN worker_stats st ON st.worker_id = w.user_id WHERE w.user_id = ${u.id}`,
     sql`SELECT us.name, st.completed FROM workers x JOIN users us ON us.id = x.user_id LEFT JOIN worker_stats st ON st.worker_id = x.user_id WHERE x.invited_by = ${u.id}`,
     myBookings(u.id),
     sql`SELECT kind, number, issued_state, expires_on::text, status, checked_at::text, check_note FROM licences WHERE worker_id = ${u.id} ORDER BY kind`,
+    listPasskeys(u.id),
   ]);
   const history = all.filter((b) => ["approved", "paid", "clocked_out"].includes(b.status));
   const gross = (b: (typeof history)[number]) =>
@@ -95,6 +98,7 @@ export default async function Me() {
         )}
 
         {process.env.VAPID_PUBLIC_KEY && <AlertsToggle publicKey={process.env.VAPID_PUBLIC_KEY} savedPush={await savedPushFingerprint(u.id)} role="worker" />}
+        <PasskeysSection userId={u.id} passkeys={passkeys} />
 
         <InviteLink url={`${base}/join/${w.invite_code}`} code={w.invite_code} mates={mates.map((m) => ({ name: m.name, done: m.completed ?? 0 }))} />
 

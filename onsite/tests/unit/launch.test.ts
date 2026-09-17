@@ -46,7 +46,7 @@ describe("privacy notice contact", () => {
     expect(privacyContact({ BUSINESS_NAME: "OnSite Pty Ltd" })).toBeNull();
     expect(privacyContact({ PRIVACY_CONTACT_EMAIL: " privacy@example.com ", BUSINESS_NAME: "OnSite Pty Ltd" }))
       .toEqual({ email: "privacy@example.com", business: "OnSite Pty Ltd" });
-    expect(PRIVACY_VERSION).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(PRIVACY_VERSION).toMatch(/^\d{4}-\d{2}-\d{2}(\.\d+)?$/);                // a date, or a later change that day: 2026-09-17.2
   });
 
   it("the page reads them at request time and never hard-codes an address", () => {

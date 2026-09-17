@@ -2,7 +2,7 @@
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { sql } from "@/lib/db";
-import { createSession, destroySession, getUser, FRAME_COOKIES } from "@/lib/session";
+import { createSession, destroySession, getUser, signedInPath, FRAME_COOKIES } from "@/lib/session";
 import { normalisePhone, sendSms } from "@/lib/sms";
 import { isLatLng } from "@/lib/validate";
 import { pinFor } from "@/lib/place";
@@ -14,6 +14,7 @@ import { devShowOtpOn } from "@/lib/flags";
 import { BETA_REFUSAL, betaInviteOnly, mayRequestCode } from "@/lib/beta";
 import { PRIVACY_VERSION } from "@/lib/privacy";
 import { addMonths, trialEndFrom } from "@/lib/subscription";
+import { offerPasskeyNextScreen } from "@/lib/passkeys";
 
 /** `refused: "invite_only"` marks the closed-beta refusal, so the mobile API can answer 403 instead of 429. */
 export type AuthState = { step: "phone" | "code"; phone?: string; error?: string; devCode?: string; refused?: "invite_only" };
@@ -110,8 +111,8 @@ export async function verifyCode(prev: AuthState, form: FormData, opts?: { ip?: 
   const r = await verifyOtp(phone, code, ip ?? null);
   if (!r.ok) return r.step === "phone" ? { step: "phone", error: r.error } : { ...prev, error: r.error };
   await createSession(r.userId);
-  if (!r.role || !r.name) redirect(invite ? `/onboarding?invite=${encodeURIComponent(invite)}` : "/onboarding");
-  redirect(r.role === "boss" ? "/boss" : "/worker");
+  await offerPasskeyNextScreen();                           // "Sign in with Face ID next time?" on the next boss or worker screen
+  redirect(signedInPath(r, invite));                        // actions/passkeys.ts signs in through the same two lines
 }
 
 export async function logout() {
@@ -150,6 +151,7 @@ export async function completeOnboarding(form: FormData) {
               VALUES (${u.id}, ${company}, ${abn}, ${trialEnd}, 'trialing', ${trialEnd}, ${addMonths(trialEnd, 1)})
               ON CONFLICT (user_id) DO UPDATE SET company = EXCLUDED.company, abn = EXCLUDED.abn`;
     await createSession(u.id);
+    await offerPasskeyNextScreen();
     redirect("/boss");
   } else {
     const [lng, lat] = pinFor(Number(form.get("lng")), Number(form.get("lat")), "suburb");   // a home is kept to ~1 km, whatever the form sent
@@ -170,6 +172,7 @@ export async function completeOnboarding(form: FormData) {
       }
     }
     await createSession(u.id);
+    await offerPasskeyNextScreen();
     redirect("/worker");
   }
 }

@@ -58,6 +58,38 @@ describe("signed-in screens guard themselves", () => {
 });
 
 /**
+ * Face ID / fingerprint sign-in (actions/passkeys.ts) lives outside the signed-in folders too. Registering and
+ * removing act on the caller's own passkeys, so each checks who is calling before anything else; signing in has
+ * nobody to check yet, so it refuses when passkeys are off and counts against the connection's limit first.
+ */
+describe("the passkey actions guard themselves", () => {
+  const src = fs.readFileSync("actions/passkeys.ts", "utf8");
+  const bodies = Object.fromEntries(src.split(/^export async function /m).slice(1)
+    .map((b) => [b.slice(0, b.indexOf("(")), b.slice(b.indexOf("{\n") + 2).trimStart().split("\n").map((l) => l.trim())]));
+
+  it("the file is a server action file with the five actions", () => {
+    expect(src).toMatch(/^"use server";/);
+    expect(Object.keys(bodies).sort()).toEqual(["passkeyLoginOptions", "passkeyRegister", "passkeyRegisterOptions", "passkeySignIn", "removePasskey"]);
+  });
+
+  it("registering and removing read the signed-in user first and stop when there is none", () => {
+    for (const name of ["passkeyRegisterOptions", "passkeyRegister", "removePasskey"]) {
+      expect(bodies[name][0], name).toBe("const u = await getUser();");
+      expect(bodies[name][1], name).toMatch(/^if \(!u\) return\b/);
+    }
+  });
+
+  it("signing in refuses when passkeys are off, then spends the connection's allowance before any checking", () => {
+    for (const name of ["passkeyLoginOptions", "passkeySignIn"]) {
+      const [a, b, c, d] = bodies[name];
+      expect([a, b], name).toEqual(["const rp = relyingParty();", `if (!rp) return refuse("off");`]);
+      expect(c, name).toBe("const ip = await clientIp();");
+      expect(d, name).toMatch(/^if \(ip && !\(await hit\(`passkey-(login|verify):ip:\$\{ip\}`/);
+    }
+  });
+});
+
+/**
  * Staying signed in adds two routes outside the signed-in folders (lib/session.ts). Nothing in front of them
  * checks anything either, so each must verify the token — and that its user still exists — before it does anything.
  */

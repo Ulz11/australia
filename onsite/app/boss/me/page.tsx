@@ -6,12 +6,17 @@ import { statusWords } from "@/lib/subscription";
 import { logout } from "@/actions/auth";
 import { savedPushFingerprint } from "@/lib/alerts";
 import { AlertsToggle } from "@/components/AlertsToggle";
+import { PasskeysSection } from "@/components/PasskeysSection";
+import { listPasskeys } from "@/lib/passkeys";
 export const dynamic = "force-dynamic";
 export default async function BossMe() {
   const u = await requireRole("boss");
-  const [b] = await sql`SELECT b.company, b.abn, b.subscription_status AS status, b.trial_ends_at, b.period_ends_at,
+  const [[b], passkeys] = await Promise.all([
+    sql`SELECT b.company, b.abn, b.subscription_status AS status, b.trial_ends_at, b.period_ends_at,
       st.approved_count, st.approve_hours_avg, st.pay_days_avg
-    FROM bosses b LEFT JOIN boss_stats st ON st.boss_id = b.user_id WHERE b.user_id = ${u.id}`;
+    FROM bosses b LEFT JOIN boss_stats st ON st.boss_id = b.user_id WHERE b.user_id = ${u.id}`,
+    listPasskeys(u.id),
+  ]);
   return (
     <>
       <Header title="Me" />
@@ -24,6 +29,7 @@ export default async function BossMe() {
           <Big n={b?.pay_days_avg != null ? `${b.pay_days_avg}d` : "—"} label="to pay" />
         </div>
         {process.env.VAPID_PUBLIC_KEY && <AlertsToggle publicKey={process.env.VAPID_PUBLIC_KEY} savedPush={await savedPushFingerprint(u.id)} role="boss" />}
+        <PasskeysSection userId={u.id} passkeys={passkeys} />
         {/* Billing lives on its own screen; this says where the boss stands without opening it. */}
         <Row href="/boss/billing" title="Billing" sub={statusWords({ status: b?.status ?? "trialing", trial_ends_at: b?.trial_ends_at ?? null, period_ends_at: b?.period_ends_at ?? null }).title} />
         <div className="card space-y-2">

@@ -83,6 +83,14 @@ export async function renewSession(token: string | null | undefined, renewAfterS
 export const bearerToken = (authorization: string | null | undefined) =>
   authorization?.toLowerCase().startsWith("bearer ") ? authorization.slice(7).trim() || null : null;
 
+/**
+ * Where a fresh sign-in lands — a text code or Face ID alike: onboarding (keeping an invite) until the account has a
+ * role and a name, then that side's home.
+ */
+export const signedInPath = (u: { role: string | null; name: string | null }, invite?: string) =>
+  !u.role || !u.name ? (invite ? `/onboarding?invite=${encodeURIComponent(invite)}` : "/onboarding")
+    : u.role === "boss" ? "/boss" : "/worker";
+
 export async function createSession(userId: string) {
   if (process.env.TEST_USER_ID && process.env.NODE_ENV !== "production") return; // scripts/tests: no cookie jar
   const token = await signSession(userId);

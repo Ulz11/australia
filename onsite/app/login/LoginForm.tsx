@@ -1,19 +1,28 @@
 "use client";
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { authAction, type AuthState } from "@/actions/auth";
+import { PasskeySignIn } from "./PasskeySignIn";
 
-/** `demo`: codes show on screen instead of going by text (lib/flags.ts), so don't promise a text. */
-export function LoginForm({ invite, demo = false }: { invite?: string; demo?: boolean }) {
+/**
+ * `demo`: codes show on screen instead of going by text (lib/flags.ts), so don't promise a text.
+ * `passkeys`: Face ID / fingerprint sign-in is on for this site (lib/passkeys.ts); null keeps the page as it was.
+ */
+export function LoginForm({ invite, demo = false, passkeys = null }: { invite?: string; demo?: boolean; passkeys?: { origin: string; rpID: string } | null }) {
   const [s, act, pending] = useActionState(authAction, { step: "phone" } as AuthState);
+  // `webauthn` joins `tel` only once this browser can offer passkeys in the box's suggestions (PasskeySignIn).
+  const [autofill, setAutofill] = useState(false);
   if (s.step === "phone")
     return (
-      <form action={act} className="space-y-3">
-        <input type="hidden" name="step" value="phone" />
-        <label className="text-lg font-bold block">Your mobile number</label>
-        <input name="phone" type="tel" inputMode="tel" autoComplete="tel" placeholder="0412 345 678" className="input text-2xl" required autoFocus />
-        {s.error && <p className="text-warn font-semibold">{s.error}</p>}
-        <button className="btn-primary text-xl" disabled={pending}>{pending ? (demo ? "Getting your code…" : "Sending…") : demo ? "Get my code" : "Text me a code"}</button>
-      </form>
+      <div className="space-y-4">
+        <form action={act} className="space-y-3">
+          <input type="hidden" name="step" value="phone" />
+          <label className="text-lg font-bold block">Your mobile number</label>
+          <input name="phone" type="tel" inputMode="tel" autoComplete={autofill ? "tel webauthn" : "tel"} placeholder="0412 345 678" className="input text-2xl" required autoFocus />
+          {s.error && <p className="text-warn font-semibold">{s.error}</p>}
+          <button className="btn-primary text-xl" disabled={pending}>{pending ? (demo ? "Getting your code…" : "Sending…") : demo ? "Get my code" : "Text me a code"}</button>
+        </form>
+        {passkeys && <PasskeySignIn origin={passkeys.origin} rpID={passkeys.rpID} invite={invite} autofill={autofill} onAutofill={setAutofill} />}
+      </div>
     );
   return (
     <form action={act} className="space-y-3">

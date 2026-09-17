@@ -37,7 +37,8 @@ export default async function Privacy() {
           <li>Your <b>mobile number</b>. You sign in with it{texts ? ", we text your sign-in codes and shift offers to it," : ""} and the people you work with can call you on it.</li>
           <li>Your <b>name</b>, and whether you are a <b>boss</b> or a <b>worker</b>.</li>
           <li>When you agreed to this notice, and which version you agreed to.</li>
-          <li>Sign-in codes — stored scrambled, never as the code itself — and your <b>internet address</b>, which we use to limit how many codes one connection can ask for. That record is cleared within a day.</li>
+          <li>Sign-in codes — stored scrambled, never as the code itself — and your <b>internet address</b>, which we use to limit how many codes or sign-in tries one connection can ask for. That record is cleared within a day.</li>
+          <li>If you turn on <b>Face ID or fingerprint sign-in</b>: a public key for each device you turn it on for, its label (like &ldquo;iPhone&rdquo;), when you added it and when it was last used. <b>Never your face or fingerprint</b> — they stay on your phone, which only tells us they matched. The key that goes with it (a passkey) is kept by your phone, or by Apple or Google if your phone backs up its passwords; we send them nothing.</li>
           <li>If you turn on <b>phone alerts</b>: the push address your browser gives us, the keys that encrypt alerts to it, and what kind of browser or phone it is.</li>
           <li>The messages OnSite shows you in the app, and a note of when you tap to call someone through the app (who and when — never the call itself).</li>
         </ul>

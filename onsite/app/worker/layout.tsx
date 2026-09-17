@@ -3,6 +3,7 @@ import { requireRole } from "@/lib/session";
 import { sql } from "@/lib/db";
 import { TabBar, type Tab } from "@/components/TabBar";
 import { SessionRefresh } from "@/components/SessionRefresh";
+import { PasskeyOfferGate } from "@/components/PasskeyOfferGate";
 
 const tabs = (matches = 0, live = 0): Tab[] => [
   { href: "/worker", label: "Calendar", icon: "calendar", badge: matches },
@@ -26,6 +27,7 @@ export default async function WorkerLayout({ children }: { children: React.React
       {children}
       <SessionRefresh />
       <Suspense fallback={<TabBar tabs={tabs()} />}><Tabs userId={u.id} /></Suspense>
+      <Suspense fallback={null}><PasskeyOfferGate userId={u.id} /></Suspense>
     </>
   );
 }
