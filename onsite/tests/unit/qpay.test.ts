@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { expiryToMs, getQpayToken, resetQpayToken, createQpayInvoice, checkQpayPayment, qpayConfigured, callbackSig, callbackSigOk } from "@/lib/qpay";
+import { expiryToMs, getQpayToken, resetQpayToken, createQpayInvoice, cancelQpayInvoice, checkQpayPayment, qpayConfigured, callbackSig, callbackSigOk, payLinks, qpayGone, QpayError } from "@/lib/qpay";
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
@@ -191,5 +191,60 @@ describe("payment check — the only thing that says 'paid'", () => {
   it("not paid when there are no rows", async () => {
     mockFetch(json(200, { access_token: "A1", expires_in: 3600 }), json(200, { count: 0, rows: [] }));
     expect(await checkQpayPayment("inv-1")).toMatchObject({ paid: false, paidAmount: 0 });
+  });
+});
+
+describe("what a payer is shown — kept from the invoice QPay raised", () => {
+  it("keeps the QR, the short link and one link per bank app", () => {
+    const qr = payLinks({
+      qr_image: "iVBORw0KGgo=", qPay_shortUrl: "https://s.qpay.mn/abc",
+      urls: [
+        { name: "Khan bank", description: "Хаан банк", logo: "https://qpay.mn/q/logo/khanbank.png", link: "khanbank://q?qPay_QRcode=0002010102" },
+        { name: "qPay wallet", description: "qPay хэтэвч", logo: "https://s3.qpay.mn/p/e9bbdc69/qpay.png", link: "qpaywallet://q?qPay_QRcode=0002010102" },
+      ],
+    });
+    expect(qr).toEqual({
+      qr_image: "iVBORw0KGgo=", short_url: "https://s.qpay.mn/abc",
+      urls: [
+        { name: "Khan bank", logo: "https://qpay.mn/q/logo/khanbank.png", link: "khanbank://q?qPay_QRcode=0002010102" },
+        { name: "qPay wallet", logo: "https://s3.qpay.mn/p/e9bbdc69/qpay.png", link: "qpaywallet://q?qPay_QRcode=0002010102" },
+      ],
+    });
+  });
+
+  it("drops a link that could run script or reach somewhere odd, and a logo or short link that isn't https", () => {
+    const qr = payLinks({
+      qr_image: "not base64 <script>", qPay_shortUrl: "javascript:alert(1)",
+      urls: [
+        { name: "Evil", description: "", logo: "https://x/y.png", link: "javascript:alert(1)" },
+        { name: "Data", description: "", logo: "https://x/y.png", link: "data:text/html,<b>" },
+        { name: "Plain http", description: "", logo: "https://x/y.png", link: "http://example.com" },
+        { name: "", description: "", logo: "https://x/y.png", link: "khanbank://q" },
+        { name: "Http logo", description: "", logo: "http://x/y.png", link: "tdbbank://q?x=1" },
+      ],
+    });
+    expect(qr.qr_image).toBe("");
+    expect(qr.short_url).toBeNull();
+    expect(qr.urls).toEqual([{ name: "Http logo", logo: null, link: "tdbbank://q?x=1" }]);
+  });
+});
+
+describe("cancelling", () => {
+  it("DELETEs the invoice by QPay's id", async () => {
+    mockFetch(json(200, { access_token: "A1", expires_in: 3600 }), json(200, {}));
+    await cancelQpayInvoice("inv-9");
+    expect(calls[1].url).toBe("https://merchant.qpay.mn/v2/invoice/inv-9");
+    expect(calls[1].init.method).toBe("DELETE");
+  });
+
+  it("treats 'already gone' as done, and anything else as a refusal", () => {
+    expect(qpayGone(new QpayError("x", 404, ""))).toBe(true);
+    expect(qpayGone(new QpayError("x", 400, '{"error":"INVOICE_NOTFOUND","message":"Invoice not found"}'))).toBe(true);
+    // what QPay really answered a second DELETE with (Sept 2026)
+    expect(qpayGone(new QpayError("x", 400, '{"error":"INVOICE_ALREADY_CANCELED","message":"Нэхэмжлэл цуцлагдсан байна"}'))).toBe(true);
+    expect(qpayGone(new QpayError("x", 400, '{"error":"INVOICE_PAID"}'))).toBe(false);          // paid is not gone
+    expect(qpayGone(new QpayError("x", 500, "CANCELLED"))).toBe(false);                          // a 5xx is never an answer
+    expect(qpayGone(new QpayError("x", 0, ""))).toBe(false);
+    expect(qpayGone(new Error("timeout"))).toBe(false);
   });
 });

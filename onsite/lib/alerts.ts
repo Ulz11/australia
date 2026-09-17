@@ -45,6 +45,7 @@ const TITLES: Record<string, string> = {
   paid: "Paid", offer: "Deal request", offer_accepted: "Deal agreed", offer_declined: "Deal declined", counter: "Counter-offer",
   cancelled: "Shift cancelled", removed: "Taken off a shift", dispute: "Worker disagrees", weather: "Weather stop", test: "Alerts are on",
   licence_check: "Card checked",            // a White Card the register couldn't answer for at save time (lib/licenceRecheck.ts) — push only
+  invoice_paid: "Invoice paid",             // QPay confirmed a boss's payment (lib/billing.ts) — push only
 };
 
 export type Alert = { title: string; body: string; url: string; tag: string; urgent: boolean };
@@ -54,7 +55,7 @@ export function alertFor(n: { id: string; kind: string; body: string; shift_id: 
   const urgent = n.kind === "shift_match" && !!n.starts_soon;
   const boss = n.role === "boss";
   const url = boss
-    ? n.kind === "offer" ? "/boss/offers" : n.shift_id ? `/boss/shifts/${n.shift_id}` : "/boss"
+    ? n.kind === "offer" ? "/boss/offers" : n.kind === "invoice_paid" ? "/boss/billing" : n.shift_id ? `/boss/shifts/${n.shift_id}` : "/boss"
     : n.kind === "shift_match" ? "/worker"
     : ["hours_approved", "paid", "test", "licence_check"].includes(n.kind) ? "/worker/me"
     : ["counter", "offer_accepted", "offer_declined"].includes(n.kind) ? "/worker/offers"

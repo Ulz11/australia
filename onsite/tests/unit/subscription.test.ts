@@ -5,11 +5,13 @@
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
-  addMonths, billingBusiness, dueDateFor, fmtBillingDay, fmtInvoiceDay, gstRegistered, invoiceNumber,
-  isInvoiceNumber, matchFeeCents, money, payInstructions, periodSoFar, priceWords, splitGst,
-  statusWords, subscriptionCents, trialDays, trialEndFrom, upsellWords,
+  QPAY_NOT_SET_UP, addMonths, audCentsToMnt, audMntRate, billingBusiness, demoBillingWords, dueDateFor,
+  fmtBillingDay, fmtInvoiceDay, gstRegistered, invoiceNumber, invoicePaidWords, isInvoiceNumber, isOverdue,
+  matchFeeCents, mntWords, money, periodSoFar, priceWords, qpayDescription, qpayPayable, splitGst,
+  statusWords, subscriptionCents, trialDays, trialEndFrom, tugrik, upsellWords,
 } from "@/lib/subscription";
 import { parseArgs } from "@/scripts/billing";
+import { DemoBillingNote } from "@/app/boss/billing/DemoBillingNote";
 
 afterEach(() => { vi.unstubAllEnvs(); });
 
@@ -151,12 +153,97 @@ describe("this period so far", () => {
   });
 });
 
+describe("paying through QPay — the tögrög amount", () => {
+  it("is the AUD total at the rate, in whole tögrög", () => {
+    expect(audCentsToMnt(3200, "2250")).toBe(72000);
+    expect(audCentsToMnt(3300, "2250")).toBe(74250);
+    expect(audCentsToMnt(200, "2250")).toBe(4500);
+  });
+
+  it("rounds up, never down — a tögrög over, never a tögrög under", () => {
+    expect(audCentsToMnt(1, "2250")).toBe(23);                       // 22.5
+    expect(audCentsToMnt(3300, "2268.54")).toBe(74862);              // 74,861.82
+    expect(audCentsToMnt(3510, "2268.54")).toBe(79626);              // 79,625.754
+    expect(audCentsToMnt(3300, "2268.5")).toBe(74861);               // 74,860.5
+  });
+
+  it("is exact where floating point isn't: 14 cents at 2250 is 315, not 316", () => {
+    expect(Math.ceil((14 / 100) * 2250)).toBe(316);                  // the trap the integer arithmetic avoids
+    expect(audCentsToMnt(14, "2250")).toBe(315);
+    // across every total up to $300, it agrees with the rule worked in exact rationals
+    for (let c = 0; c <= 30000; c++) {
+      const want = Math.floor((c * 226854 + 9999) / 10000);         // ceil(c × 2268.54 / 100), all integers
+      if (audCentsToMnt(c, "2268.54") !== want) throw new Error(`${c} cents → ${audCentsToMnt(c, "2268.54")}, want ${want}`);
+    }
+  });
+
+  it("refuses to work in part-cents or with a rate that isn't a positive number", () => {
+    expect(() => audCentsToMnt(12.5, "2250")).toThrow();
+    expect(() => audCentsToMnt(100, "0")).toThrow();
+    expect(() => audCentsToMnt(100, "abc")).toThrow();
+  });
+
+  it("reads the rate from AUD_MNT_RATE, and treats anything but a plain positive number as unset", () => {
+    expect(audMntRate({ AUD_MNT_RATE: "2250" })).toBe("2250");
+    expect(audMntRate({ AUD_MNT_RATE: " 2268.54 " })).toBe("2268.54");
+    expect(audMntRate({ AUD_MNT_RATE: "02250" })).toBe("2250");
+    for (const bad of [undefined, "", "  ", "0", "0.000", "-2250", "2,250", "2250 MNT", "1e3", "abc", "NaN"])
+      expect(audMntRate({ AUD_MNT_RATE: bad }), String(bad)).toBeNull();
+  });
+
+  it("writes tögrög with thousands separators, beside the rate it came from", () => {
+    expect(tugrik(72000)).toBe("₮72,000");
+    expect(tugrik("1234567")).toBe("₮1,234,567");
+    expect(mntWords(72000, "2250")).toBe("≈ ₮72,000 at ₮2,250 per $1");
+    expect(mntWords(74862, "2268.54")).toBe("≈ ₮74,862 at ₮2,268.54 per $1");
+  });
+
+  it("tells QPay the invoice number and nothing else", () => {
+    expect(qpayDescription("OS-2026-000123")).toBe("OnSite invoice OS-2026-000123");
+    expect(invoicePaidWords("OS-2026-000123")).toBe("Invoice OS-2026-000123 paid — thanks.");
+  });
+});
+
 describe("what an invoice says about paying it", () => {
-  it("never invents bank details — without instructions it promises to send them", () => {
-    expect(payInstructions({})).toBe("We'll send you payment details.");
-    expect(payInstructions({ BILLING_PAY_INSTRUCTIONS: "   " })).toBe("We'll send you payment details.");
-    expect(payInstructions({ BILLING_PAY_INSTRUCTIONS: " Transfer to the account on your welcome email. " }))
-      .toBe("Transfer to the account on your welcome email.");
+  it("offers QPay only with both the credentials and a rate — and never invents bank details without them", () => {
+    const creds = () => { vi.stubEnv("QPAY_USERNAME", "u"); vi.stubEnv("QPAY_PASSWORD", "p"); vi.stubEnv("QPAY_INVOICE_CODE", "c"); };
+    creds();
+    vi.stubEnv("AUD_MNT_RATE", "2250");
+    expect(qpayPayable()).toBe(true);
+    vi.stubEnv("AUD_MNT_RATE", "");
+    expect(qpayPayable()).toBe(false);                               // no rate
+    vi.stubEnv("AUD_MNT_RATE", "2250");
+    vi.stubEnv("QPAY_INVOICE_CODE", "");
+    expect(qpayPayable()).toBe(false);                               // no QPay
+    expect(QPAY_NOT_SET_UP).toBe("Payment by QPay isn't set up yet — we'll send you payment details.");
+  });
+
+  it("is overdue only while open and past its due date", () => {
+    const now = new Date("2026-10-01T00:00:00Z");
+    expect(isOverdue({ status: "open", due_at: "2026-09-30T23:59:59Z" }, now)).toBe(true);
+    expect(isOverdue({ status: "open", due_at: "2026-10-01T00:00:01Z" }, now)).toBe(false);
+    expect(isOverdue({ status: "paid", due_at: "2026-09-01T00:00:00Z" }, now)).toBe(false);
+    expect(isOverdue({ status: "void", due_at: "2026-09-01T00:00:00Z" }, now)).toBe(false);
+  });
+
+  it("the demo notice stops saying 'nothing is charged' the moment QPay can take real money", () => {
+    const text = (el: unknown): string => {
+      if (el == null || typeof el === "boolean") return "";
+      if (typeof el === "string") return el;
+      const p = (el as { props?: Record<string, unknown> }).props ?? {};
+      return [p.title, p.children].map(text).join("");
+    };
+    expect(demoBillingWords(false)).toBe("This is a demo — invoices here are examples and nothing is charged.");
+    expect(demoBillingWords(true)).toBe("This is a demo, but paying an invoice here sends real money through QPay.");
+
+    vi.stubEnv("DEMO_SITE", "1");
+    vi.stubEnv("QPAY_USERNAME", "u"); vi.stubEnv("QPAY_PASSWORD", "p"); vi.stubEnv("QPAY_INVOICE_CODE", "c");
+    vi.stubEnv("AUD_MNT_RATE", "");
+    expect(text(DemoBillingNote())).toBe(demoBillingWords(false));
+    vi.stubEnv("AUD_MNT_RATE", "2250");
+    expect(text(DemoBillingNote())).toBe(demoBillingWords(true));
+    vi.stubEnv("DEMO_SITE", "");
+    expect(DemoBillingNote()).toBeNull();                            // not a demo: no line at all
   });
 
   it("shows a From block only when there is a business name to put in it", () => {

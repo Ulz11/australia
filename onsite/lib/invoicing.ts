@@ -8,8 +8,9 @@ import {
 } from "./subscription";
 
 /**
- * Invoices, written to the database. No card, no gateway, nothing that moves money: an invoice here
- * is a record with a number on it, and a human marks it paid (npm run billing:paid).
+ * Invoices, written to the database. No card and nothing here moves money: an invoice is a record with a
+ * number on it. The boss pays it through QPay (lib/invoiceQpay.ts), and settling that QPay invoice marks this
+ * one paid (lib/billing.ts). npm run billing:paid marks one paid by hand, for anything settled another way.
  *
  * Everything that writes one goes through closePeriod(), which is the same idempotent step wherever
  * it is called from — the cron, "Start subscription", or re-subscribing. It locks the boss's row,
@@ -34,6 +35,9 @@ export type InvoiceRow = {
   period_start: string; period_end: string; issued_at: string; due_at: string;
   subtotal_cents: number; gst_cents: number; total_cents: number;
   status: "open" | "paid" | "void"; paid_at: string | null; paid_note: string | null;
+  /** The QPay invoice that can pay this one (migration 011), the whole tögrög it asks for, and the rate it was raised at. */
+  qpay_sender_invoice_no: string | null; qpay_amount_mnt: string | number | null; qpay_rate: string | null;
+  qpay_claimed_at: string | null;
 };
 
 export type InvoiceLineRow = {
@@ -271,15 +275,22 @@ export const allInvoices = (limit = 200) =>
     FROM invoices i JOIN bosses b ON b.user_id = i.boss_id JOIN users u ON u.id = i.boss_id
     ORDER BY i.issued_at DESC, i.number DESC LIMIT ${limit}`;
 
-/** npm run billing:paid — the only way an invoice becomes paid. Nothing in the app charges anything. */
-export async function markInvoicePaid(number: string, note: string | null): Promise<{ ok: true; invoice: InvoiceRow } | { ok: false; reason: "unknown" | "already_paid" | "void" }> {
+/**
+ * npm run billing:paid — marks one paid by hand, for money that arrived some other way. QPay payments mark
+ * themselves paid (lib/billing.ts). `qpayStillOpen` names a QPay invoice still linked and payable, so the
+ * person running it can cancel that on QPay rather than let the boss pay twice.
+ */
+export async function markInvoicePaid(number: string, note: string | null): Promise<{ ok: true; invoice: InvoiceRow; qpayStillOpen: string | null } | { ok: false; reason: "unknown" | "already_paid" | "void" }> {
   const [existing] = await sql<InvoiceRow[]>`SELECT * FROM invoices WHERE number = ${number}`;
   if (!existing) return { ok: false, reason: "unknown" };
   if (existing.status === "paid") return { ok: false, reason: "already_paid" };
   if (existing.status === "void") return { ok: false, reason: "void" };
-  const [invoice] = await sql<InvoiceRow[]>`
-    UPDATE invoices SET status = 'paid', paid_at = now(), paid_note = ${note}
-    WHERE number = ${number} AND status = 'open' RETURNING *`;
-  return invoice ? { ok: true, invoice } : { ok: false, reason: "already_paid" };
+  const [invoice] = await sql<(InvoiceRow & { qpay_still_open: string | null })[]>`
+    UPDATE invoices i SET status = 'paid', paid_at = now(), paid_note = ${note}
+    WHERE i.number = ${number} AND i.status = 'open'
+    RETURNING i.*, (SELECT q.sender_invoice_no FROM qpay_invoices q WHERE q.sender_invoice_no = i.qpay_sender_invoice_no AND q.status = 'open') AS qpay_still_open`;
+  if (!invoice) return { ok: false, reason: "already_paid" };
+  const { qpay_still_open, ...row } = invoice;
+  return { ok: true, invoice: row, qpayStillOpen: qpay_still_open };
 }
 

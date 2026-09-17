@@ -23,6 +23,36 @@ export type QpayInvoice = {
   urls: { name: string; description: string; logo: string; link: string }[];
 };
 
+/**
+ * What a payer needs, kept from the moment the invoice is raised: GET /invoice/{id} doesn't hand the QR or the
+ * bank links back again (checked Sept 2026), so lib/billing.ts stores this while the invoice can be paid.
+ */
+export type QpayQr = {
+  qr_image: string;                         // base64 PNG
+  short_url: string | null;
+  urls: { name: string; logo: string | null; link: string }[];
+};
+
+/**
+ * The QR, short link and bank-app links out of QPay's answer, fit to put on a page. The links go straight into
+ * an href, so only a real app scheme or https survives (never javascript:, data: and the like), and logos and
+ * the short link must be https.
+ */
+export function payLinks(inv: Pick<QpayInvoice, "qr_image" | "qPay_shortUrl" | "urls">): QpayQr {
+  const https = (s: unknown) => (typeof s === "string" && /^https:\/\/[^\s"'<>]+$/i.test(s) ? s : null);
+  const appLink = (s: unknown) => {
+    if (typeof s !== "string" || s.length > 2000 || /[\s"'<>]/.test(s)) return null;
+    const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(s)?.[1]?.toLowerCase();
+    return scheme && !["javascript", "data", "vbscript", "file", "blob", "about", "http"].includes(scheme) ? s : null;
+  };
+  const urls = (Array.isArray(inv.urls) ? inv.urls : []).flatMap((u) => {
+    const link = appLink(u?.link), name = typeof u?.name === "string" ? u.name.trim().slice(0, 60) : "";
+    return link && name ? [{ name, logo: https(u.logo), link }] : [];
+  });
+  const png = typeof inv.qr_image === "string" && /^[A-Za-z0-9+/=\s]+$/.test(inv.qr_image) ? inv.qr_image.replace(/\s/g, "") : "";
+  return { qr_image: png, short_url: https(inv.qPay_shortUrl), urls };
+}
+
 export type QpayPaymentRow = {
   payment_id: string;
   payment_status: string;                   // 'PAID' | 'NEW' | 'FAILED' | 'REFUNDED'
@@ -208,6 +238,16 @@ export class QpayError extends Error {
     super(status ? `${message} (${status}): ${body.slice(0, 200)}` : message);
     this.name = "QpayError";
   }
+}
+
+/**
+ * QPay refused to cancel an invoice because it isn't there to cancel — never existed, or already cancelled.
+ * For a cancel that is the outcome we wanted. A refusal for any other reason (paid, network, 5xx) is not.
+ */
+export function qpayGone(e: unknown): boolean {
+  if (!(e instanceof QpayError)) return false;
+  if (e.status === 404) return true;
+  return e.status >= 400 && e.status < 500 && /NOT[_ ]?FOUND|ALREADY[_ ]?CANCEL|CANCELL?ED/i.test(e.body);
 }
 
 async function safeText(res: Response) {

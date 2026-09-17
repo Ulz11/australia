@@ -28,6 +28,10 @@ describe("what the phone shows", () => {
     expect(SMS_KINDS.has("licence_check")).toBe(false);
     expect([...SMS_KINDS]).toEqual(["shift_match"]);
   });
+  it("an invoice QPay confirmed opens Billing, has its own title, and is never worth a text", () => {
+    expect(n("invoice_paid", "boss", "Invoice OS-2026-000123 paid — thanks.", null)).toMatchObject({ title: "Invoice paid", url: "/boss/billing", urgent: false, tag: "invoice_paid:n1" });
+    expect(SMS_KINDS.has("invoice_paid")).toBe(false);
+  });
   it("tags by kind and shift, so a second alert about the same shift replaces the first", () => {
     expect(n("shift_match", "worker").tag).toBe("shift_match:s1");
     expect(n("test", "worker", "x", null).tag).toBe("test:n1");

@@ -1,10 +1,16 @@
 import { demoSite } from "@/lib/flags";
+import { demoBillingWords, qpayPayable } from "@/lib/subscription";
+import { Say } from "@/components/ui";
 
 /**
- * On the demo deployment the invoices are made up and nobody owes anything. Said once, on every
- * billing screen, so a number on a tax-invoice layout can't be mistaken for a real bill.
+ * On the demo deployment, said once on every billing screen. While QPay can't take a payment the invoices
+ * there are made-up examples, and a quiet line says so. Once it can, a QR on a demo invoice takes real money —
+ * that needs the boss's attention, so it is orange.
  */
 export function DemoBillingNote() {
   if (!demoSite()) return null;
-  return <p className="text-steel">This is a demo — invoices here are examples and nothing is charged.</p>;
+  const live = qpayPayable();
+  return live
+    ? <Say tone="orange" title={demoBillingWords(true)} />
+    : <p className="text-steel">{demoBillingWords(false)}</p>;
 }

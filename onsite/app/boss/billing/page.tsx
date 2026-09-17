@@ -1,20 +1,22 @@
+import Link from "next/link";
+import { CircleAlert } from "lucide-react";
 import { requireRole } from "@/lib/session";
 import { Header, Page, Empty } from "@/components/Header";
 import { Row, Say, Section } from "@/components/ui";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { DemoBillingNote } from "./DemoBillingNote";
 import { InvoiceStatus } from "./InvoiceStatus";
-import { bossBilling, listInvoices, matchesThisPeriod } from "@/lib/invoicing";
+import { bossBilling, listInvoices, matchesThisPeriod, type InvoiceRow } from "@/lib/invoicing";
 import {
-  fmtBillingDay, matchFeeCents, money, periodSoFar, priceWords, statusWords, subscriptionCents,
+  fmtBillingDay, isOverdue, matchFeeCents, money, periodSoFar, priceWords, qpayPayable, statusWords, subscriptionCents,
 } from "@/lib/subscription";
 import { startSubscriptionNow, cancelSubscriptionNow, keepSubscription } from "@/actions/billing";
 export const dynamic = "force-dynamic";
 
 /**
  * What the boss is paying, in the order he'd ask: where do I stand, what has this month cost, what
- * have I been billed. No card is stored and nothing charges anything — invoices are records, and a
- * person marks them paid.
+ * have I been billed. No card is stored and nothing here charges anything: an open invoice has a "Pay" link
+ * to its own page, where it is paid through QPay.
  */
 export default async function Billing() {
   const u = await requireRole("boss");
@@ -25,6 +27,8 @@ export default async function Billing() {
   const tone = b.subscription_status === "active" ? "green" : b.subscription_status === "lapsed" ? "orange" : "grey";
   const so = periodSoFar({ matches, status: b.subscription_status });
   const fee = matchFeeCents();
+  const payable = qpayPayable();
+  const now = new Date();
 
   return (
     <>
@@ -33,7 +37,9 @@ export default async function Billing() {
         <DemoBillingNote />
         <Say tone={tone} title={words.title} sub={words.sub} />
 
-        <Section title="This period so far" hint="Nothing is charged to a card. We invoice you and you pay it your usual way." />
+        <Section title="This period so far" hint={payable
+          ? "Nothing is charged to a card. We invoice you, and you pay each invoice through QPay in your bank app."
+          : "Nothing is charged to a card. We invoice you and send you payment details."} />
         <div className="card num divide-y divide-line">
           <div className="py-2 flex justify-between gap-3">
             <span>{so.matches} new worker{so.matches === 1 ? "" : "s"} OnSite found you × {priceWords(fee)}</span>
@@ -56,15 +62,15 @@ export default async function Billing() {
         {invoices.length === 0
           ? <Empty>No invoices yet.</Empty>
           : <div className="space-y-2">
-              {invoices.map((i) => (
-                <Row key={i.id} href={`/boss/billing/${i.number}`}
-                  title={<span className="num">{i.number}</span>}
-                  sub={fmtBillingDay(i.issued_at)}
-                  right={<div className="space-y-1">
-                    <div className="num font-bold">{money(i.total_cents)}</div>
-                    <InvoiceStatus s={i.status} />
-                  </div>} />
-              ))}
+              {invoices.map((i) => i.status === "open" && payable
+                ? <OpenInvoiceRow key={i.id} i={i} overdue={isOverdue(i, now)} />
+                : <Row key={i.id} href={`/boss/billing/${i.number}`}
+                    title={<span className="num">{i.number}</span>}
+                    sub={fmtBillingDay(i.issued_at)}
+                    right={<div className="space-y-1">
+                      <div className="num font-bold">{money(i.total_cents)}</div>
+                      <InvoiceStatus s={i.status} />
+                    </div>} />)}
             </div>}
 
         {b.subscription_status === "lapsed"
@@ -77,5 +83,29 @@ export default async function Billing() {
               </ConfirmButton>}
       </Page>
     </>
+  );
+}
+
+/**
+ * An open invoice, with a "Pay" beside it. Two links side by side rather than a button inside a link: the row
+ * opens the invoice, "Pay" opens the same page, where the QPay button is. Orange only once it is overdue.
+ */
+function OpenInvoiceRow({ i, overdue }: { i: InvoiceRow; overdue: boolean }) {
+  const href = `/boss/billing/${i.number}`;
+  return (
+    <div className={`card flex items-center gap-3 ${overdue ? "border-hv border-2 bg-hv-soft" : ""}`}>
+      <Link href={href} className="flex-1 min-w-0 flex items-center gap-3 min-h-[56px]">
+        <div className="flex-1 min-w-0">
+          <div className="text-lg font-bold leading-tight num">{i.number}</div>
+          <div className="text-base text-steel mt-0.5">
+            {overdue
+              ? <span className="text-ink font-bold inline-flex items-center gap-1.5"><CircleAlert size={16} strokeWidth={2.5} aria-hidden className="shrink-0" />Overdue — was due {fmtBillingDay(i.due_at)}</span>
+              : `Due ${fmtBillingDay(i.due_at)}`}
+          </div>
+        </div>
+        <div className="shrink-0 num font-bold">{money(i.total_cents)}</div>
+      </Link>
+      <Link href={href} className="btn btn-sm bg-ink text-white shrink-0" aria-label={`Pay invoice ${i.number}`}>Pay</Link>
+    </div>
   );
 }

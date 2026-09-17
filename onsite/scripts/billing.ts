@@ -1,6 +1,6 @@
 /**
- * The invoice book, from a terminal. Nothing in OnSite charges anything: an invoice is a record, and
- * this is how a person marks one paid once the money has actually arrived.
+ * The invoice book, from a terminal. Invoices are paid through QPay and mark themselves paid when QPay
+ * confirms it; this is how a person marks one paid when the money arrived some other way.
  *
  *   npm run billing:list                                          every invoice, newest first
  *   npm run billing:paid -- OS-2026-000123 [--note "…"]           mark one paid
@@ -71,7 +71,10 @@ async function main() {
       console.log(`${rows.length} invoice${rows.length === 1 ? "" : "s"}, ${open.length} open (${dollars(open.reduce((a, r) => a + r.total_cents, 0))}).`);
     } else {
       const r = await markInvoicePaid(parsed.number, parsed.note);
-      if (r.ok) console.log(`${r.invoice.number} marked paid — ${dollars(r.invoice.total_cents)}${parsed.note ? ` (${parsed.note})` : ""}.`);
+      if (r.ok) {
+        console.log(`${r.invoice.number} marked paid — ${dollars(r.invoice.total_cents)}${parsed.note ? ` (${parsed.note})` : ""}.`);
+        if (r.qpayStillOpen) console.log(`QPay invoice ${r.qpayStillOpen} for it is still open. Cancel it in QPay so it can't be paid a second time.`);
+      }
       else if (r.reason === "unknown") throw new Error(`No invoice ${parsed.number}. Run npm run billing:list to see them.`);
       else if (r.reason === "already_paid") console.log(`${parsed.number} was already marked paid — nothing changed.`);
       else throw new Error(`${parsed.number} is cancelled, so it can't be paid.`);

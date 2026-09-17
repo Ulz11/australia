@@ -11,8 +11,12 @@
  * Money is whole cents everywhere. Prices are GST-inclusive: when OnSite is registered for GST the
  * invoice says so and shows the GST already inside the total (one eleventh), it is never added on top.
  * Dates that a person reads are Sydney dates (lib/util's TZ).
+ *
+ * Invoices are paid only through QPay, in tögrög from a Mongolian bank app. The one conversion — AUD cents
+ * to whole tögrög at AUD_MNT_RATE, never a tögrög under — lives here too (audCentsToMnt).
  */
 import { TZ } from "./util";
+import { qpayConfigured } from "./qpay";
 
 /** The same loose shape lib/db.ts and lib/privacy.ts read the environment through. */
 type Env = Record<string, string | undefined>;
@@ -33,11 +37,65 @@ export const trialDays = (env?: Env) => intEnv("TRIAL_DAYS", 3, env);
 export const gstRegistered = (env: Env = process.env) => env.GST_REGISTERED === "1";
 
 /**
- * What an open invoice tells the boss to do. Never invents bank details: without
- * BILLING_PAY_INSTRUCTIONS it promises to send them instead of guessing an account number.
+ * Tögrög per 1 AUD, from AUD_MNT_RATE (Mongolbank's official daily rate, e.g. 2250). Kept as the decimal text
+ * it was set as, so the amount is worked out exactly. Null when unset or not a plain positive number — then
+ * QPay payment is off rather than charging at a guessed rate.
  */
-export const payInstructions = (env: Env = process.env) =>
-  env.BILLING_PAY_INSTRUCTIONS?.trim() || "We'll send you payment details.";
+export function audMntRate(env: Env = process.env): string | null {
+  const raw = env.AUD_MNT_RATE?.trim();
+  if (!raw || !/^\d{1,9}(\.\d{1,6})?$/.test(raw) || !(Number(raw) > 0)) return null;
+  return raw.replace(/^0+(?=\d)/, "");
+}
+
+/**
+ * What an invoice costs in QPay: the AUD total at the rate, in whole tögrög, rounded up — never a tögrög under.
+ * The rule is ceil(total_cents / 100 × rate), done in integers: in floating point 14 cents at 2250 is
+ * 315.00000000000006, which would round up to 316.
+ */
+export function audCentsToMnt(totalCents: number, rate: string): number {
+  if (!Number.isInteger(totalCents) || totalCents < 0) throw new Error(`total must be whole cents, got ${totalCents}`);
+  const m = /^(\d+)(?:\.(\d+))?$/.exec(rate.trim());
+  if (!m || !(Number(rate) > 0)) throw new Error(`not a rate: ${rate}`);
+  const frac = m[2] ?? "";
+  const scaledRate = BigInt(m[1] + frac);                         // rate × 10^decimals
+  const denominator = BigInt(100) * BigInt(10) ** BigInt(frac.length);
+  const numerator = BigInt(totalCents) * scaledRate;
+  return Number((numerator + denominator - BigInt(1)) / denominator);
+}
+
+/** Invoices can be paid right now: QPay's credentials are set and so is the rate. Read at call time. */
+export const qpayPayable = (env: Env = process.env) => qpayConfigured() && audMntRate(env) !== null;
+
+/** "₮72,000" — whole tögrög with thousands separators. */
+export const tugrik = (mnt: number | string) => "₮" + Math.round(Number(mnt)).toLocaleString("en-AU");
+
+/** "≈ ₮72,000 at ₮2,250 per $1" — the tögrög amount beside the AUD total it came from. */
+export const mntWords = (mnt: number | string, rate: string) =>
+  `≈ ${tugrik(mnt)} at ₮${Number(rate).toLocaleString("en-AU", { maximumFractionDigits: 6 })} per $1`;
+
+/** What QPay shows the payer. The invoice number and nothing else — no names, no ABN. */
+export const qpayDescription = (number: string) => `OnSite invoice ${number}`;
+
+/** An open invoice when QPay can't take the payment: no rate, or no credentials. Never invents bank details. */
+export const QPAY_NOT_SET_UP = "Payment by QPay isn't set up yet — we'll send you payment details.";
+/** Under the QR and the bank buttons. */
+export const QPAY_HOW_TO = "Pay in your bank app. This page updates by itself once QPay confirms it.";
+
+/** The boss's push when QPay confirms the payment. `{number}` is filled in by the statement that marks it paid. */
+export const INVOICE_PAID_WORDS = "Invoice {number} paid — thanks.";
+export const invoicePaidWords = (number: string) => INVOICE_PAID_WORDS.replace("{number}", number);
+
+/**
+ * The line on every billing screen of a demo deployment. Once QPay can take a payment, the invoices there are
+ * no longer harmless examples, and the line says so.
+ */
+export const demoBillingWords = (qpayOn: boolean) => qpayOn
+  ? "This is a demo, but paying an invoice here sends real money through QPay."
+  : "This is a demo — invoices here are examples and nothing is charged.";
+
+/** Past its due date and still not paid. The only time an invoice is orange. */
+export const isOverdue = (inv: { status: string; due_at: Date | string }, now: Date) =>
+  inv.status === "open" && new Date(inv.due_at).getTime() < now.getTime();
 
 /** Who the invoice is from. Null when BUSINESS_NAME is unset — the invoice then shows no "From" block. */
 export function billingBusiness(env: Env = process.env): { name: string; abn: string | null } | null {
@@ -69,7 +127,7 @@ export function addMonths(d: Date, n: number): Date {
 /** The period that follows this one. Periods never overlap and never leave a gap. */
 export const nextPeriod = (start: Date, end: Date) => ({ start: end, end: addMonths(end, 1) });
 
-/** An invoice is a record someone pays by hand, so it is due two weeks after it is issued. */
+/** An invoice is due two weeks after it is issued. */
 export const dueDateFor = (issuedAt: Date) => addDays(issuedAt, 14);
 
 /**
