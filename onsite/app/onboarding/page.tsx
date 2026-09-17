@@ -14,7 +14,7 @@ export default async function Onboarding({ searchParams }: { searchParams: Promi
       <Brand sub="Two questions and you are in." />
       <form action={completeOnboarding} className="mt-6 space-y-5">
         <RoleForm invite={invite} defaultRole={invite ? "worker" : undefined}
-          error={err === "privacy" ? "Tick the box to agree to the privacy notice — we can't set up your account without it." : undefined} />
+          error={err === "privacy" ? "Tick the box to agree to the privacy notice and the rules — we can't set up your account without it." : undefined} />
       </form>
     </main>
   );

@@ -18,7 +18,11 @@ export default async function Login({ searchParams }: { searchParams: Promise<{ 
       {devShowOtpOn()
         ? <p className="text-steel mt-6"><b className="text-ink">This is a demo.</b> Your sign-in code shows on screen instead of by text, so anyone who types your number can open your account. Don&apos;t enter anything you wouldn&apos;t want others to see, like your visa type or card numbers.</p>
         : <p className="text-steel mt-6">No password. We text you a code.</p>}
-      <p className="text-steel mt-2"><Link href="/privacy" className="underline">How we handle your information</Link></p>
+      <p className="text-steel mt-2">
+        <Link href="/privacy" className="underline">How we handle your information</Link>
+        {" · "}
+        <Link href="/terms" className="underline">The rules</Link>
+      </p>
     </main>
   );
 }

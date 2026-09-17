@@ -7,6 +7,7 @@
  */
 import postgres from "postgres";
 import { PRIVACY_VERSION } from "../lib/privacy";
+import { TERMS_VERSION } from "../lib/terms";
 // Site time, like the app's own pool (lib/db.ts): the bare timestamps below ('06:28' and friends) are read in
 // the session's zone, so without this every seeded clock-in lands at half four in the afternoon in Sydney.
 const sql = postgres(process.env.DATABASE_URL!, { ssl: "require", max: 1, connection: { TimeZone: process.env.APP_TZ || "Australia/Sydney" } });
@@ -64,15 +65,17 @@ async function main() {
 
   const uid: Record<number, string> = {};
   for (const b of bosses) {
-    // Demo accounts count as having agreed to the privacy notice, as onboarding would have recorded.
-    const [u] = await sql`INSERT INTO users (phone, name, role, privacy_accepted_at, privacy_version) VALUES (${P(b.n)}, ${b.name}, 'boss', now(), ${PRIVACY_VERSION}) RETURNING id`;
+    // Demo accounts count as having agreed to the privacy notice and the rules, as onboarding would have recorded.
+    const [u] = await sql`INSERT INTO users (phone, name, role, privacy_accepted_at, privacy_version, terms_accepted_at, terms_version)
+                          VALUES (${P(b.n)}, ${b.name}, 'boss', now(), ${PRIVACY_VERSION}, now(), ${TERMS_VERSION}) RETURNING id`;
     uid[b.n] = u.id;
     // Same free trial a real boss gets, so the demo's Billing screen shows a live one rather than a blank.
     await sql`INSERT INTO bosses (user_id, company, abn, trial_ends_at, period_started_at, period_ends_at)
               VALUES (${u.id}, ${b.company}, ${b.abn}, now() + interval '3 days', now() + interval '3 days', now() + interval '1 month 3 days')`;
   }
   for (const [n, name, sub, lat, lng, tix, visa, radius] of workers) {
-    const [u] = await sql`INSERT INTO users (phone, name, role, privacy_accepted_at, privacy_version) VALUES (${P(n)}, ${name}, 'worker', now(), ${PRIVACY_VERSION}) RETURNING id`;
+    const [u] = await sql`INSERT INTO users (phone, name, role, privacy_accepted_at, privacy_version, terms_accepted_at, terms_version)
+                          VALUES (${P(n)}, ${name}, 'worker', now(), ${PRIVACY_VERSION}, now(), ${TERMS_VERSION}) RETURNING id`;
     uid[n] = u.id;
     await sql`INSERT INTO workers (user_id, home, home_label, radius_km, tickets, visa_type, invite_code)
       VALUES (${u.id}, ST_SetSRID(ST_MakePoint(${lng}, ${lat}),4326)::geography, ${sub}, ${radius}, ${tix}, ${visa}, ${"M" + String(n).slice(1) + "XK"})`;

@@ -41,7 +41,7 @@ export function RoleForm({ invite, defaultRole, error }: { invite?: string; defa
       )}
       <label htmlFor="privacy" className="flex items-start gap-3 text-lg">
         <input id="privacy" type="checkbox" name="privacy" value="yes" required className="mt-1 h-6 w-6 shrink-0 accent-ink" />
-        <span>I agree to the <Link href="/privacy" target="_blank" className="font-bold underline">privacy notice</Link>.</span>
+        <span>I agree to the <Link href="/privacy" target="_blank" className="font-bold underline">privacy notice</Link> and the <Link href="/terms" target="_blank" className="font-bold underline">terms</Link>.</span>
       </label>
       {error && <p className="text-warn font-semibold">{error}</p>}
       <button className="btn-primary text-xl">Done</button>

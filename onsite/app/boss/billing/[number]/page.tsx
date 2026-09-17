@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ExternalLink } from "lucide-react";
 import { requireRole } from "@/lib/session";
@@ -91,6 +92,7 @@ export default async function Invoice({ params }: { params: Promise<{ number: st
           charges a card{pay.kind === "unavailable" || pay.kind === "closed"
             ? " — when you've paid, we mark it paid here."
             : ". You pay through QPay in your own bank app, and this invoice shows Paid as soon as QPay confirms it."}
+          {" "}<Link href="/terms" className="underline font-bold">The rules</Link>.
         </p>
       </Page>
     </>

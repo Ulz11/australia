@@ -5,6 +5,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import fs from "node:fs";
 import { privacyContact, PRIVACY_VERSION } from "@/lib/privacy";
+import { TERMS_VERSION } from "@/lib/terms";
 import { parseArgs } from "@/scripts/beta-invite";
 
 afterEach(() => { vi.unstubAllEnvs(); vi.resetModules(); });
@@ -53,6 +54,35 @@ describe("privacy notice contact", () => {
     const src = fs.readFileSync("app/privacy/page.tsx", "utf8");
     expect(src).toMatch(/await connection\(\)/);
     expect(src).not.toMatch(/[\w.+-]+@[\w-]+\.[\w.]+/);          // no email address typed into the page
+  });
+});
+
+/**
+ * The rules at /terms (lib/terms.ts). Same rule as the privacy notice: nothing about the business is typed
+ * into the page, and every figure on it is read when the page is requested — never frozen at build time, so a
+ * price can't go stale on the one screen that promises it.
+ */
+describe("the rules page", () => {
+  const src = fs.readFileSync("app/terms/page.tsx", "utf8");
+
+  it("reads its contact at request time and never hard-codes an address or an ABN", () => {
+    expect(src).toMatch(/await connection\(\)/);
+    expect(src).toMatch(/privacyContact\(\)/);
+    expect(src).not.toMatch(/[\w.+-]+@[\w-]+\.[\w.]+/);
+    expect(src).not.toMatch(/\b\d{11}\b/);
+  });
+
+  it("reads every fee from the code that charges it, not from words typed into the page", () => {
+    for (const fn of ["matchFeeCents()", "subscriptionCents()", "trialDays()", "gstRegistered()", "demoSite()"])
+      expect(src, fn).toContain(fn);
+    expect(src).toContain("AWARD_CASUAL_FLOOR");
+    expect(src).not.toMatch(/\$\d/);                              // no dollar figure typed in
+    expect(TERMS_VERSION).toMatch(/^\d{4}-\d{2}-\d{2}(\.\d+)?$/);
+  });
+
+  it("is linked from the login screen, onboarding's consent box and the billing screens", () => {
+    for (const f of ["app/login/page.tsx", "app/onboarding/RoleForm.tsx", "app/boss/billing/page.tsx", "app/boss/billing/[number]/page.tsx"])
+      expect(fs.readFileSync(f, "utf8"), f).toMatch(/href="\/terms"/);
   });
 });
 

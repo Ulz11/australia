@@ -14,6 +14,7 @@ import { PUSH_COOKIE } from "@/lib/alerts";
 import { devShowOtpOn } from "@/lib/flags";
 import { BETA_REFUSAL, betaInviteOnly, mayRequestCode } from "@/lib/beta";
 import { PRIVACY_VERSION } from "@/lib/privacy";
+import { TERMS_VERSION } from "@/lib/terms";
 import { addMonths, trialEndFrom } from "@/lib/subscription";
 import { offerPasskeyNextScreen } from "@/lib/passkeys";
 
@@ -163,11 +164,15 @@ export async function completeOnboarding(form: FormData) {
   const name = String(form.get("name") || "").trim();
   if (!name || !["boss", "worker"].includes(role)) return;
   // Consent is checked here, not only by the checkbox's `required`: a form posted without it sets nothing up.
+  // One tick covers the privacy notice and the rules; both are stamped with the version that was on screen.
   if (form.get("privacy") !== "yes") {
     const invite = String(form.get("invite") || "").trim();
     redirect(`/onboarding?err=privacy${invite ? `&invite=${encodeURIComponent(invite)}` : ""}`);
   }
-  await sql`UPDATE users SET name = ${name}, role = ${role}, privacy_accepted_at = now(), privacy_version = ${PRIVACY_VERSION} WHERE id = ${u.id}`;
+  await sql`UPDATE users SET name = ${name}, role = ${role},
+              privacy_accepted_at = now(), privacy_version = ${PRIVACY_VERSION},
+              terms_accepted_at = now(), terms_version = ${TERMS_VERSION}
+            WHERE id = ${u.id}`;
   if (role === "boss") {
     const company = String(form.get("company") || name).trim();
     const abn = String(form.get("abn") || "").replace(/\s/g, "") || null;

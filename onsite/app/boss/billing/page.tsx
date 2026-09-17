@@ -81,6 +81,7 @@ export default async function Billing() {
                 msg={`Cancel the subscription? The pay tools keep working until ${b.period_ends_at ? fmtBillingDay(b.period_ends_at) : "the end of this period"}, then the pay run, the approvals record and Export stop. Posting shifts, matching and approving hours stay free. You can start again any time.`}>
                 Cancel subscription
               </ConfirmButton>}
+        <p className="text-steel"><Link href="/terms" className="underline font-bold">The rules</Link> — what you and your workers agree to, and every fee on this screen.</p>
       </Page>
     </>
   );
