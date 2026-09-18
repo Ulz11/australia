@@ -57,6 +57,24 @@ describe("privacy notice contact", () => {
   });
 });
 
+describe("the rules page prices", () => {
+  // Two helpers are called `money`: lib/award's counts dollars (an hourly rate), lib/subscription's counts
+  // cents (a price out of the billing code). /terms went live saying "$3,300.00 a month" for a $33 subscription
+  // because it had imported the dollars one for a cents figure.
+  it("a price in cents is only ever formatted by the helper that counts cents", async () => {
+    const { money: moneyDollars } = await import("@/lib/award");
+    const { money: moneyCents, subscriptionCents } = await import("@/lib/subscription");
+    const cents = subscriptionCents({ SUBSCRIPTION_CENTS: "3300" });
+    expect(moneyCents(cents)).toBe("$33.00");
+    expect(moneyDollars(cents)).toBe("$3,300.00");               // the same number, a hundred times the price
+
+    const src = fs.readFileSync("app/terms/page.tsx", "utf8");
+    expect(src).not.toMatch(/\bmoney\(\s*(subscriptionCents|matchFeeCents)\b/);
+    expect(src).toMatch(/await connection\(\)/);                 // every figure read at request time, never baked in
+    expect(src).not.toMatch(/[\w.+-]+@[\w-]+\.[\w.]+/);          // the contact comes from privacyContact(), same as /privacy
+  });
+});
+
 /**
  * The rules at /terms (lib/terms.ts). Same rule as the privacy notice: nothing about the business is typed
  * into the page, and every figure on it is read when the page is requested — never frozen at build time, so a

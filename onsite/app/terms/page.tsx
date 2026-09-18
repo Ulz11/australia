@@ -6,7 +6,8 @@ import { AWARD_CASUAL_FLOOR, money } from "@/lib/award";
 import { demoSite } from "@/lib/flags";
 import { privacyContact } from "@/lib/privacy";
 import { TERMS_VERSION } from "@/lib/terms";
-import { gstRegistered, matchFeeCents, priceWords, subscriptionCents, trialDays } from "@/lib/subscription";
+// `money` here counts cents, lib/award's counts dollars: the award floor is a rate, the subscription is a price.
+import { money as moneyCents, gstRegistered, matchFeeCents, priceWords, subscriptionCents, trialDays } from "@/lib/subscription";
 import { getLang, getT } from "@/lib/i18n/server";
 
 export const metadata: Metadata = { title: "The rules — OnSite" };
@@ -21,7 +22,7 @@ export default async function Terms() {
   await connection();                                   // prices and the contact come from the environment at request time
   const contact = privacyContact();
   const fee = priceWords(matchFeeCents());
-  const subscription = money(subscriptionCents());
+  const subscription = moneyCents(subscriptionCents());
   const days = trialDays();
   const gst = gstRegistered();
   const demo = demoSite();
