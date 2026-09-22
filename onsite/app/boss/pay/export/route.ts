@@ -1,15 +1,16 @@
 import { sql } from "@/lib/db";
 import { getUser } from "@/lib/session";
 import { payForShift } from "@/lib/rules";
-import { payToolsAllowed } from "@/lib/invoicing";
 import { addDays, weekStart, todayIso } from "@/lib/util";
+import { csvCell, safeFilename } from "@/lib/csv";
 
 export async function GET(req: Request) {
   const u = await getUser();
   if (!u) return Response.redirect(new URL("/login", req.url), 307);   // a download link opened signed out: sign in first
   if (u.role !== "boss") return new Response("unauthorised", { status: 401 });
-  // Export is a pay tool. A lapsed boss is sent to the pay screen, which says why and offers the way back.
-  if (!(await payToolsAllowed(u.id)).allowed) return Response.redirect(new URL("/boss/pay", req.url), 307);
+  // The only redirect left is the signed-out one above. Export used to be behind the subscription; nothing is
+  // behind anything now, so a boss can always download their own pay records — which is what /terms promises
+  // someone deleting their account.
   const ws = weekStart(new URL(req.url).searchParams.get("week") || todayIso());
   const [boss] = await sql`SELECT company FROM bosses WHERE user_id = ${u.id}`;
   const rows = await sql`
@@ -18,11 +19,13 @@ export async function GET(req: Request) {
     FROM bookings b JOIN shifts s ON s.id = b.shift_id JOIN users us ON us.id = b.worker_id JOIN projects p ON p.id = s.project_id
     LEFT JOIN crew c ON c.worker_id = b.worker_id AND c.boss_id = ${u.id}
     WHERE s.boss_id = ${u.id} AND b.status IN ('approved','paid') AND s.day BETWEEN ${ws} AND ${addDays(ws, 6)} ORDER BY us.name, s.day`;
-  const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  // Names, sites and notes are typed by people, so every cell is quoted and a would-be formula is defused (lib/csv.ts).
   const lines = [["Worker", "Phone", "Type", "Date", "Site", "Hours", "Rate", "Overtime terms", "How it was paid", "Gross", "Super", "Status", "Note"].join(",")];
   for (const r of rows) {
     const p = payForShift(Number(r.hours_approved), Number(r.rate), { ot_mode: r.ot_mode, ot_after_hours: r.ot_after_hours, ot_multiplier: r.ot_multiplier });
-    lines.push([r.name, r.phone, r.type ?? "casual", r.day, r.site, r.hours_approved, r.rate, r.ot_mode, p.words + (p.appliedFloor ? " (Award floor applied)" : ""), p.gross, p.superAmt, r.status, r.pay_reason ?? ""].map(esc).join(","));
+    lines.push([r.name, r.phone, r.type ?? "casual", r.day, r.site, r.hours_approved, r.rate, r.ot_mode, p.words + (p.appliedFloor ? " (Award floor applied)" : ""), p.gross, p.superAmt, r.status, r.pay_reason ?? ""].map(csvCell).join(","));
   }
-  return new Response(lines.join("\n"), { headers: { "Content-Type": "text/csv", "Content-Disposition": `attachment; filename="${boss.company}-week-${ws}.csv"` } });
+  // The company name goes into a header, where a quote or a letter outside ASCII is a broken download, not a name.
+  const filename = `${safeFilename(boss?.company ?? "", "pay")}-week-${ws}.csv`;
+  return new Response(lines.join("\n"), { headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="${filename}"` } });
 }

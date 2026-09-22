@@ -5,10 +5,10 @@
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
-  FX_UNAVAILABLE, QPAY_NOT_SET_UP, addMonths, audCentsToMnt, audMntRate, audMoney, billingBusiness, demoBillingWords, dueDateFor,
-  fmtBillingDay, fmtInvoiceDay, fmtRateDay, gstRegistered, invoiceNumber, invoicePaidWords, isInvoiceNumber, isOverdue,
-  matchFeeCents, mntWords, money, periodSoFar, priceWords, qpayDescription, qpayPayable, rateWords, splitGst,
-  statusWords, subscriptionCents, trialDays, trialEndFrom, tugrik, upsellWords,
+  DAY_MS, FORTNIGHT_DAYS, FX_UNAVAILABLE, QPAY_NOT_SET_UP, addDays, audCentsToMnt, audMntRate, audMoney, billingBusiness,
+  demoBillingWords, dueDateFor, fmtBillingDay, fmtInvoiceDay, fmtRateDay, gstRegistered, invoiceNumber, invoicePaidWords,
+  isInvoiceNumber, isOverdue, matchFeeCents, mntWords, moneyCents, nextPeriod, paymentTermsDays, periodSoFar, priceWords,
+  qpayDescription, qpayPayable, rateWords, splitGst, tugrik,
 } from "@/lib/subscription";
 import { parseArgs } from "@/scripts/billing";
 import { DemoBillingNote } from "@/app/boss/billing/DemoBillingNote";
@@ -16,23 +16,30 @@ import { DemoBillingNote } from "@/app/boss/billing/DemoBillingNote";
 afterEach(() => { vi.unstubAllEnvs(); });
 
 describe("what it costs", () => {
-  it("has the product's prices as its defaults, and lets the environment move them", () => {
-    expect([matchFeeCents({}), subscriptionCents({}), trialDays({})]).toEqual([200, 3300, 3]);
+  it("has the product's one price as its default, and lets the environment move it", () => {
+    expect([matchFeeCents({}), paymentTermsDays({})]).toEqual([200, 7]);
     expect(matchFeeCents({ MATCH_FEE_CENTS: "500" })).toBe(500);
-    expect(subscriptionCents({ SUBSCRIPTION_CENTS: "4400" })).toBe(4400);
-    expect(trialDays({ TRIAL_DAYS: "14" })).toBe(14);
+    expect(paymentTermsDays({ PAYMENT_TERMS_DAYS: "21" })).toBe(21);
   });
 
   it("ignores nonsense in the environment rather than charging a strange number", () => {
     for (const bad of ["", "   ", "free", "-100", "NaN"])
       expect(matchFeeCents({ MATCH_FEE_CENTS: bad }), bad).toBe(200);
+    for (const bad of ["", "   ", "soon", "-7", "NaN"])
+      expect(paymentTermsDays({ PAYMENT_TERMS_DAYS: bad }), bad).toBe(7);
   });
 
   it("writes money the way the rest of the app does, and prices in a sentence without dead cents", () => {
-    expect(money(3300)).toBe("$33.00");
-    expect(money(200)).toBe("$2.00");
-    expect(money(123456)).toBe("$1,234.56");
-    expect([priceWords(3300), priceWords(200), priceWords(250)]).toEqual(["$33", "$2", "$2.50"]);
+    expect(moneyCents(200)).toBe("$2.00");
+    expect(moneyCents(4600)).toBe("$46.00");
+    expect(moneyCents(123456)).toBe("$1,234.56");
+    expect([priceWords(200), priceWords(4600), priceWords(250)]).toEqual(["$2", "$46", "$2.50"]);
+  });
+
+  it("gives a boss less time to pay than a fortnight, so one open invoice is the normal state", () => {
+    // Terms of a full fortnight would mean every invoice was still inside its window when the next one was
+    // raised: a boss would permanently carry two, and "overdue" would only ever mean an invoice a month old.
+    expect(paymentTermsDays({})).toBeLessThan(FORTNIGHT_DAYS);
   });
 });
 
@@ -40,13 +47,13 @@ describe("GST", () => {
   it("is the eleventh already inside the total, never added on top", () => {
     expect(splitGst(3300, true)).toEqual({ subtotal_cents: 3000, gst_cents: 300, total_cents: 3300 });
     expect(splitGst(200, true)).toEqual({ subtotal_cents: 182, gst_cents: 18, total_cents: 200 });
-    // a whole invoice: subscription + three matches
-    expect(splitGst(3300 + 3 * 200, true)).toEqual({ subtotal_cents: 3545, gst_cents: 355, total_cents: 3900 });
+    // a whole fortnight: nineteen introductions
+    expect(splitGst(19 * 200, true)).toEqual({ subtotal_cents: 3455, gst_cents: 345, total_cents: 3800 });
   });
 
   it("is nothing at all when OnSite is not registered — the total is the same either way", () => {
-    expect(splitGst(3300, false)).toEqual({ subtotal_cents: 3300, gst_cents: 0, total_cents: 3300 });
-    expect(splitGst(3900, false).total_cents).toBe(splitGst(3900, true).total_cents);
+    expect(splitGst(3800, false)).toEqual({ subtotal_cents: 3800, gst_cents: 0, total_cents: 3800 });
+    expect(splitGst(3800, false).total_cents).toBe(splitGst(3800, true).total_cents);
   });
 
   it("only GST_REGISTERED=1 counts", () => {
@@ -55,7 +62,7 @@ describe("GST", () => {
   });
 
   it("every split adds up, whatever the total", () => {
-    for (const cents of [1, 99, 200, 3300, 3500, 12345, 999999]) {
+    for (const cents of [1, 99, 200, 3300, 3800, 12345, 999999]) {
       const s = splitGst(cents, true);
       expect(s.subtotal_cents + s.gst_cents, String(cents)).toBe(s.total_cents);
     }
@@ -64,27 +71,44 @@ describe("GST", () => {
 
 describe("the calendar", () => {
   const at = (iso: string) => new Date(iso);
+  /** The wall clock in Sydney, where a boss reads these dates. */
+  const syd = (d: Date) => d.toLocaleString("en-AU", { timeZone: "Australia/Sydney", hour12: false, day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
-  it("bills on the anniversary, with no proration", () => {
-    expect(addMonths(at("2026-09-20T03:00:00Z"), 1).toISOString()).toBe("2026-10-20T03:00:00.000Z");
-    expect(addMonths(at("2026-09-20T03:00:00Z"), 12).toISOString()).toBe("2027-09-20T03:00:00.000Z");
+  it("bills every fortnight, with no gap between periods and no overlap", () => {
+    const p = nextPeriod(at("2026-09-16T14:00:00Z"), at("2026-09-30T14:00:00Z"));
+    expect(p.start.toISOString()).toBe("2026-09-30T14:00:00.000Z");          // starts where the last one ended
+    expect(p.end.toISOString()).toBe("2026-10-14T14:00:00.000Z");
+    let start = at("2026-01-06T13:00:00Z"), end = addDays(start, FORTNIGHT_DAYS);
+    for (let i = 0; i < 26; i++) {
+      const n = nextPeriod(start, end);
+      expect(n.start.getTime(), `fortnight ${i}`).toBe(end.getTime());
+      expect(n.end.getTime() - n.start.getTime(), `fortnight ${i}`).toBe(FORTNIGHT_DAYS * DAY_MS);
+      start = n.start; end = n.end;
+    }
   });
 
-  it("lands on the last day of a month too short for the anniversary, and never skips into the next one", () => {
-    expect(addMonths(at("2026-01-31T03:00:00Z"), 1).toISOString()).toBe("2026-02-28T03:00:00.000Z");
-    expect(addMonths(at("2028-01-31T03:00:00Z"), 1).toISOString()).toBe("2028-02-29T03:00:00.000Z");   // leap year
-    expect(addMonths(at("2026-03-31T03:00:00Z"), 1).toISOString()).toBe("2026-04-30T03:00:00.000Z");
+  it("is exactly 14 x 24 hours across a daylight saving change, both ways", () => {
+    // Sydney's clocks go forward on 4 October 2026 and back on 5 April. A period built by setting a calendar
+    // date would be 13 days 23 hours one fortnight a year and 14 days 1 hour another, and the boundary would
+    // walk an hour further every six months until a boss's fortnight closed at 3am.
+    const forward = nextPeriod(at("2026-09-16T14:00:00Z"), at("2026-09-30T14:00:00Z"));
+    expect(forward.end.getTime() - forward.start.getTime()).toBe(FORTNIGHT_DAYS * DAY_MS);
+    expect(forward.end.toISOString()).toBe("2026-10-14T14:00:00.000Z");
+    expect([syd(forward.start), syd(forward.end)]).toEqual(["01/10, 00:00", "15/10, 01:00"]);   // +10 → +11
+
+    const back = nextPeriod(at("2026-03-15T13:00:00Z"), at("2026-03-29T13:00:00Z"));
+    expect(back.end.getTime() - back.start.getTime()).toBe(FORTNIGHT_DAYS * DAY_MS);
+    expect(back.end.toISOString()).toBe("2026-04-12T13:00:00.000Z");
+    expect([syd(back.start), syd(back.end)]).toEqual(["30/03, 00:00", "12/04, 23:00"]);         // +11 → +10
   });
 
-  it("steps a month at a time without drifting off the billing day", () => {
-    let d = at("2026-01-15T03:00:00Z");
-    for (let i = 0; i < 24; i++) { d = addMonths(d, 1); expect(d.getUTCDate()).toBe(15); }
-    expect(d.toISOString()).toBe("2028-01-15T03:00:00.000Z");
-  });
-
-  it("gives a new boss three days, and an invoice two weeks to be paid", () => {
-    expect(trialEndFrom(at("2026-09-17T03:00:00Z"), {}).toISOString()).toBe("2026-09-20T03:00:00.000Z");
-    expect(dueDateFor(at("2026-09-20T03:00:00Z")).toISOString()).toBe("2026-10-04T03:00:00.000Z");
+  it("gives an invoice PAYMENT_TERMS_DAYS to be paid — seven by default, and whatever the environment says", () => {
+    expect(dueDateFor(at("2026-09-20T03:00:00Z"), {}).toISOString()).toBe("2026-09-27T03:00:00.000Z");
+    expect(dueDateFor(at("2026-09-20T03:00:00Z"), { PAYMENT_TERMS_DAYS: "21" }).toISOString()).toBe("2026-10-11T03:00:00.000Z");
+    expect(dueDateFor(at("2026-09-20T03:00:00Z"), { PAYMENT_TERMS_DAYS: "0" }).toISOString()).toBe("2026-09-20T03:00:00.000Z");
+    expect(dueDateFor(at("2026-09-20T03:00:00Z"), { PAYMENT_TERMS_DAYS: "next week" }).toISOString()).toBe("2026-09-27T03:00:00.000Z");
+    // and the due date is an instant too: a week is a week whatever the clocks do in the middle of it
+    expect(dueDateFor(at("2026-10-01T13:00:00Z"), {}).getTime() - at("2026-10-01T13:00:00Z").getTime()).toBe(7 * DAY_MS);
   });
 
   it("writes dates in Sydney, the way a boss reads them", () => {
@@ -109,54 +133,32 @@ describe("invoice numbers", () => {
   });
 });
 
-describe("what the boss is told", () => {
-  const state = (status: "trialing" | "active" | "cancelling" | "lapsed") =>
-    ({ status, trial_ends_at: "2026-09-20T05:00:00Z", period_ends_at: "2026-10-20T05:00:00Z" });
-
-  it("says where they stand in one sentence, with the date and the price in it", () => {
-    expect(statusWords(state("trialing")).title).toBe("Free trial — ends Sun 20 Sept, then $33.00 a month");
-    expect(statusWords(state("active")).title).toBe("Subscribed — next invoice Tue 20 Oct");
-    expect(statusWords(state("cancelling")).title).toBe("Cancelling — pay tools until Tue 20 Oct");
-    expect(statusWords(state("lapsed")).title).toBe("Not subscribed");
+/**
+ * What the boss is told about where he stands used to live here — statusWords() and upsellWords(), the trial
+ * countdown, "Cancelling — pay tools until…", "Not subscribed". Those cases are gone rather than rewritten,
+ * because the thing they described is gone: there is no status, nothing lapses and nothing is switched off.
+ * The only words a boss now reads about money are a count of introductions and a total.
+ */
+describe("this fortnight so far", () => {
+  it("is a multiplication over introductions and nothing else", () => {
+    expect(periodSoFar({ matches: 3 }, {})).toEqual({ matches: 3, fee: 200, totalCents: 600 });
+    expect(periodSoFar({ matches: 1 }, {})).toEqual({ matches: 1, fee: 200, totalCents: 200 });
+    expect(periodSoFar({ matches: 19 }, {}).totalCents).toBe(3800);
   });
 
-  it("never shows an empty date when there isn't one", () => {
-    for (const status of ["trialing", "active", "cancelling", "lapsed"] as const) {
-      const w = statusWords({ status, trial_ends_at: null, period_ends_at: null });
-      expect(w.title, status).not.toMatch(/null|undefined|Invalid/);
-      expect(w.sub, status).toBeTruthy();
-    }
+  it("charges a quiet fortnight nothing at all — a real answer the screens say in words, not as a $0.00 tile", () => {
+    expect(periodSoFar({ matches: 0 }, {})).toEqual({ matches: 0, fee: 200, totalCents: 0 });
   });
 
-  it("tells a lapsed boss when the trial ended and what the pay tools cost", () => {
-    const w = upsellWords("2026-09-20T05:00:00Z");
-    expect(w.title).toBe("Your free trial ended on Sun 20 Sept.");
-    expect(w.sub).toBe("The pay run, approvals record and export are $33.00 a month.");
-    expect(upsellWords(null).title).not.toMatch(/null|Invalid/);
-  });
-});
-
-describe("this period so far", () => {
-  it("counts the matches at the match fee and the month ahead at the subscription", () => {
-    expect(periodSoFar({ matches: 3, status: "active" }, {}))
-      .toMatchObject({ matchCents: 600, nextSubscription: 3300, totalCents: 3900 });
-  });
-
-  it("stops counting the next month once the subscription is ending or gone", () => {
-    for (const status of ["cancelling", "lapsed"] as const)
-      expect(periodSoFar({ matches: 2, status }, {}), status)
-        .toMatchObject({ matchCents: 400, nextSubscription: 0, totalCents: 400 });
-  });
-
-  it("charges a boss with no matches the subscription and nothing else", () => {
-    expect(periodSoFar({ matches: 0, status: "active" }, {}).totalCents).toBe(3300);
+  it("counts at the fee the environment is set to, not at one baked in when the page was built", () => {
+    expect(periodSoFar({ matches: 4 }, { MATCH_FEE_CENTS: "500" })).toEqual({ matches: 4, fee: 500, totalCents: 2000 });
   });
 });
 
 describe("paying through QPay — the tögrög amount", () => {
   it("is the AUD total at the rate, in whole tögrög", () => {
     expect(audCentsToMnt(3200, "2250")).toBe(72000);
-    expect(audCentsToMnt(3300, "2250")).toBe(74250);
+    expect(audCentsToMnt(3800, "2250")).toBe(85500);
     expect(audCentsToMnt(200, "2250")).toBe(4500);
   });
 

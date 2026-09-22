@@ -74,7 +74,7 @@ export function AddressPin({ initial, labelName = "home_label", placeholder = "S
       )}
       {gpsError && <p role="alert" className="text-warn font-semibold">{gpsError}</p>}
       <MapView center={pt ?? INNER_WEST} zoom={pt ? NEAR[precision] : 11} focus={focus} picked={pt} onPick={(lng, lat) => place(lng, lat, false)} />
-      <p className="text-xs text-steel">
+      <p className="text-sm text-steel">
         {precision === "suburb" ? "Tap the map to move the pin. We only keep your area, to about a kilometre." : "Tap the map to move the pin."}
       </p>
       <input type="hidden" name="lat" value={pt?.[1] ?? ""} />

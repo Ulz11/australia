@@ -11,8 +11,8 @@
  *  - money is worked out one way, by payForShift on the terms agreed when the shift was posted. Never twice.
  */
 import { sql } from "./db";
-import { payForShift, type OtTerms } from "./rules";
-import type { SubscriptionStatus } from "./subscription";
+import { siteToday } from "./siteClock";
+import { ON_TIME_GRACE_MIN, payForShift, type OtTerms } from "./rules";
 import { addDays, TZ, todayIso, weekStart } from "./util";
 import { myBookings } from "./workerQueries";
 
@@ -89,8 +89,13 @@ const shades = (totals: Map<string, number>, level: (n: number) => Level): Map<s
 
 // ──────────────────────────────────────────────────────── clocking in on time
 
-/** Ten minutes at the gate. Site time, not the phone's idea of the time. */
-export const ON_TIME_GRACE_MIN = 10;
+/**
+ * Ten minutes at the gate, read in site time, not the phone's idea of the time.
+ *
+ * The number itself belongs to lib/rules.ts and is only passed on from here, so the record and the boss's
+ * clock-in label can never drift apart again. Re-exported because the record is where people look for it.
+ */
+export { ON_TIME_GRACE_MIN };
 
 /**
  * Minutes late at the gate: the clock-in against the agreed start, both read in site time.
@@ -240,7 +245,7 @@ export async function workerRecord(workerId: string) {
     rehireCount(workerId),
     // Distinct bosses, never which ones — that is the whole promise made on /privacy.
     sql<{ n: number }[]>`SELECT COUNT(DISTINCT boss_id)::int AS n FROM profile_views
-        WHERE worker_id = ${workerId} AND day >= CURRENT_DATE - 6`,
+        WHERE worker_id = ${workerId} AND day >= ${siteToday()} - 6`,
     sql<{ name: string; completed: number | null }[]>`
         SELECT us.name, st.completed FROM workers x JOIN users us ON us.id = x.user_id
         LEFT JOIN worker_stats st ON st.worker_id = x.user_id WHERE x.invited_by = ${workerId}`,
@@ -300,8 +305,13 @@ export async function workerRecordForBoss(workerId: string) {
 /** How far back "the hiring pulse" looks. */
 export const WINDOW_DAYS = 90;
 
+/**
+ * No subscription fields. There is no status to be in and nothing to expire: the boss pays $2 per
+ * introduction on a fortnightly invoice, so `subscription_status` and `trial_ends_at` are read by
+ * nothing. `period_ends_at` went with them — /boss/billing reads the billing row directly.
+ */
 type BossRow = {
-  company: string | null; abn: string | null; status: SubscriptionStatus; trial_ends_at: Date | null; period_ends_at: Date | null;
+  company: string | null; abn: string | null;
   approved_count: number | null; approve_hours_avg: string | null; pay_days_avg: string | null;
 };
 type BookingRow = {
@@ -310,13 +320,13 @@ type BookingRow = {
   ot_mode: string; ot_after_hours: string; ot_multiplier: string | null;
   day: string; project_id: string; weather_stop: string | null; site: string; worker_name: string;
 };
-type ShiftRow = { spots: number; created_at: Date; day: string; filled: number; first_at: Date | null };
+type ShiftRow = { id: string; post_id: string | null; spots: number; created_at: Date; day: string; filled: number; first_at: Date | null };
 
 /** What the boss has actually built: who worked, how fast shifts fill, and what it cost. */
 export async function bossRecord(bossId: string) {
   const today = todayIso();
   const [[me], rows, shifts] = await Promise.all([
-    sql<BossRow[]>`SELECT b.company, b.abn, b.subscription_status AS status, b.trial_ends_at, b.period_ends_at,
+    sql<BossRow[]>`SELECT b.company, b.abn,
                st.approved_count, st.approve_hours_avg, st.pay_days_avg
         FROM bosses b LEFT JOIN boss_stats st ON st.boss_id = b.user_id WHERE b.user_id = ${bossId}`,
     sql<BookingRow[]>`SELECT b.worker_id, b.status, b.hours_worked, b.hours_approved, b.clock_in_at, b.disputed_at, b.created_at,
@@ -325,12 +335,12 @@ export async function bossRecord(bossId: string) {
         FROM bookings b JOIN shifts s ON s.id = b.shift_id JOIN projects p ON p.id = s.project_id
         JOIN users us ON us.id = b.worker_id
         WHERE s.boss_id = ${bossId} AND b.status <> 'removed'`,
-    sql<ShiftRow[]>`SELECT s.spots, s.created_at, s.day::text AS day,
+    sql<ShiftRow[]>`SELECT s.id, s.post_id, s.spots, s.created_at, s.day::text AS day,
                (SELECT COUNT(*) FROM bookings b WHERE b.shift_id = s.id AND b.status NOT IN ('removed','cancelled'))::int AS filled,
                (SELECT MIN(b.created_at) FROM bookings b WHERE b.shift_id = s.id AND b.status NOT IN ('removed','cancelled')) AS first_at
         FROM shifts s
         WHERE s.boss_id = ${bossId} AND s.status <> 'cancelled'
-          AND s.day BETWEEN CURRENT_DATE - ${WINDOW_DAYS}::int AND CURRENT_DATE`,
+          AND s.day BETWEEN ${siteToday()} - ${WINDOW_DAYS}::int AND ${siteToday()}`,
   ]);
 
   const live = rows.filter((r) => r.status !== "cancelled");
@@ -369,6 +379,32 @@ export async function bossRecord(bossId: string) {
   const fillMin = median(shifts.filter((s) => s.filled >= s.spots && s.first_at)
     .map((s) => (new Date(s.first_at!).getTime() - new Date(s.created_at).getTime()) / 60_000));
 
+  /**
+   * A JOB is a posting decision, not a headcount. One post that expanded into five days is five shift lines
+   * but one decision, and a shift asking for five people is still one decision — so counting `spots` makes
+   * two 5-spot jobs look like ten. `spots`/`taken` below stay, because a day's roster is a question about
+   * people; "did my jobs fill" is a question about the decision, and this is the denominator that answers it.
+   */
+  const jobs = new Map<string, { spots: number; filled: number }>();
+  for (const s of shifts) {
+    const j = jobs.get(s.post_id ?? s.id) ?? { spots: 0, filled: 0 };
+    j.spots += s.spots;
+    j.filled += Math.min(s.filled, s.spots);
+    jobs.set(s.post_id ?? s.id, j);
+  }
+  const jobsPosted = jobs.size;
+  const jobsFilled = [...jobs.values()].filter((j) => j.spots > 0 && j.filled >= j.spots).length;
+
+  /**
+   * How fast the FIRST yes came — over every shift that ever got one, filled or not. `fillMin` above asks the
+   * same question of fully-filled shifts only, which gets *more* flattering the worse a boss's fill rate is:
+   * the slow ones that never filled drop out of their own denominator. Shifts nobody ever said yes to are
+   * censored, not zero, so they are counted separately rather than folded in.
+   */
+  const firstYesMin = median(shifts.filter((s) => s.first_at)
+    .map((s) => (new Date(s.first_at!).getTime() - new Date(s.created_at).getTime()) / 60_000));
+  const neverAnswered = shifts.filter((s) => !s.first_at).length;
+
   const hoursBy = new Map<string, number>(), wagesBy = new Map<string, number>();
   const names = new Map<string, string>(), siteNames = new Map<string, string>();
   for (const r of live.filter((r) => WORKED.includes(r.status))) {
@@ -381,8 +417,7 @@ export async function bossRecord(bossId: string) {
   }
 
   return {
-    company: me?.company ?? null, abn: me?.abn ?? null, status: me?.status ?? "trialing",
-    trial_ends_at: me?.trial_ends_at ?? null, period_ends_at: me?.period_ends_at ?? null,
+    company: me?.company ?? null, abn: me?.abn ?? null,
     approved: num(me?.approved_count),
     approveHours: me?.approve_hours_avg == null ? null : Number(me.approve_hours_avg),
     payDays: me?.pay_days_avg == null ? null : Number(me.pay_days_avg),
@@ -392,7 +427,8 @@ export async function bossRecord(bossId: string) {
       spots: shifts.reduce((a, s) => a + s.spots, 0),
       taken: shifts.reduce((a, s) => a + Math.min(s.filled, s.spots), 0),
       shifts: shifts.length,
-      fillMin,
+      jobsPosted, jobsFilled,
+      fillMin, firstYesMin, neverAnswered,
       noShows, pastShifts: past.length,
       returning, bookings: recent.length,
     },

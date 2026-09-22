@@ -42,7 +42,9 @@ describe("signed-in screens guard themselves", () => {
 
   it("every boss and worker server action checks the caller's role before it touches anything", () => {
     // [file, the role it is for, how many actions it must at least have — so an empty or renamed file fails here]
-    for (const [file, role, least] of [["actions/boss.ts", "boss", 6], ["actions/worker.ts", "worker", 6], ["actions/billing.ts", "boss", 2]] as const) {
+    // actions/billing.ts is down to one: there is nothing to start, cancel or resume under $2-an-introduction,
+    // so paying an invoice is the only action left. One is still the floor that catches an emptied file.
+    for (const [file, role, least] of [["actions/boss.ts", "boss", 6], ["actions/worker.ts", "worker", 6], ["actions/billing.ts", "boss", 1]] as const) {
       const src = fs.readFileSync(file, "utf8");
       const bodies = src.split(/^export async function /m).slice(1);
       expect(bodies.length, file).toBeGreaterThanOrEqual(least);

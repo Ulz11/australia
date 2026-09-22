@@ -7,6 +7,7 @@ import { fmtDay } from "@/lib/util";
 import { bookWorker, recomputeTickets } from "@/lib/booking";
 import { sendAlertsSoon } from "@/lib/alerts";
 import { isUuid, isDay, num, isLatLng } from "@/lib/validate";
+import { siteToday } from "@/lib/siteClock";
 import { pinFor } from "@/lib/place";
 
 /**
@@ -87,13 +88,15 @@ export async function cancelBooking(bookingId: string) {
 export async function clockIn(bookingId: string, lat: number | null, lng: number | null) {
   const u = await requireRole("worker");
   if (!isUuid(bookingId)) return { ok: false };
-  const hasPos = lat != null && lng != null && Number.isFinite(lat) && Number.isFinite(lng);
+  const hasPos = isLatLng(lat, lng);   // a phone can hand back anything; a point off the globe would fail inside the statement
   const [b] = await sql`
     UPDATE bookings b SET status = 'clocked_in', clock_in_at = now(),
       clock_in_dist_m = ${hasPos ? sql`ST_Distance(p.location, ST_SetSRID(ST_MakePoint(${lng}, ${lat}),4326)::geography)::int` : null}
     FROM shifts s JOIN projects p ON p.id = s.project_id
     WHERE b.id = ${bookingId} AND b.worker_id = ${u.id} AND s.id = b.shift_id AND b.status = 'accepted'
-      AND s.day = CURRENT_DATE                       -- clock in on the day, not a week early
+      -- On the day, not a week early — the site's day. As CURRENT_DATE this refused every morning shift
+      -- for the ten hours the connection thought it was still yesterday (lib/siteClock.ts).
+      AND s.day = ${siteToday(sql`p.tz`)}
     RETURNING b.id`;
   revalidatePath("/worker/shift");
   return { ok: !!b, error: b ? undefined : "You can only clock in on the day of the shift." };
@@ -262,7 +265,9 @@ export async function makeOffer(form: FormData) {
     SELECT s.rate, s.hours, s.start_time::text, s.allow_offers, s.spots, s.status, p.name AS site, s.day, s.boss_id,
       (SELECT COUNT(*) FROM bookings b WHERE b.shift_id = s.id AND b.status NOT IN ('removed','cancelled'))::int AS taken,
       (SELECT b.status FROM bookings b WHERE b.shift_id = s.id AND b.worker_id = ${u.id}) AS mine,
-      (s.day < CURRENT_DATE) AS past
+      -- Over on the site's clock. CURRENT_DATE is yesterday all morning (lib/siteClock.ts), so it let a
+      -- worker send a deal request on a shift that had already been and gone.
+      (s.day < ${siteToday(sql`p.tz`)}) AS past
     FROM shifts s JOIN projects p ON p.id = s.project_id WHERE s.id = ${shiftId}`;
   if (!s || s.past) return { error: "This shift is gone." };
   if (s.mine && s.mine !== "cancelled") return { error: s.mine === "removed" ? "The boss took you off this shift." : "You're already on this shift." };

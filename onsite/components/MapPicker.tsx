@@ -67,11 +67,11 @@ export function MapView({
       const label = escapeHtml(p.label ?? "");
       if (p.kind === "home") d.innerHTML = `<div class="w-4 h-4 rounded-full bg-ink border-2 border-white shadow" title="Home"></div>`;
       else if (p.kind === "offer")   // a shift offered to this worker: the one thing on the map that wants them
-        d.innerHTML = `<div class="flex items-center gap-1 bg-hv text-ink font-bold text-sm rounded-full pl-2 pr-2.5 py-1 shadow border-2 border-ink">${p.count ?? ""} for you<span class="font-normal text-xs">${label}</span></div>`;
+        d.innerHTML = `<div class="flex items-center gap-1 bg-hv text-ink font-bold text-sm rounded-full pl-2 pr-2.5 py-1 shadow border-2 border-ink">${p.count ?? ""} for you<span class="font-normal text-sm">${label}</span></div>`;
       else if (p.kind === "place")
-        d.innerHTML = `<div class="flex items-center gap-1 bg-ink text-white font-bold text-xs rounded-full px-2.5 py-1 shadow border-2 border-white">${label}</div>`;
+        d.innerHTML = `<div class="flex items-center gap-1 bg-ink text-white font-bold text-sm rounded-full px-2.5 py-1 shadow border-2 border-white">${label}</div>`;
       else if (p.kind === "work" || (p.count ?? 0) > 0)
-        d.innerHTML = `<div class="flex items-center gap-1 bg-white text-ink font-bold text-sm rounded-full pl-2 pr-2.5 py-1 shadow border-2 border-ink">${p.count ?? ""}<span class="font-normal text-xs">${label}</span></div>`;
+        d.innerHTML = `<div class="flex items-center gap-1 bg-white text-ink font-bold text-sm rounded-full pl-2 pr-2.5 py-1 shadow border-2 border-ink">${p.count ?? ""}<span class="font-normal text-sm">${label}</span></div>`;
       else d.innerHTML = `<div class="w-3.5 h-3.5 rounded-full bg-steel border-2 border-white shadow" title="${label}"></div>`;
       d.onclick = (ev) => { ev.stopPropagation(); onPinClick?.(p.id); };
       markers.current.push(new Marker({ element: d }).setLngLat([p.lng, p.lat]).addTo(m));
@@ -107,6 +107,7 @@ function circle([lng, lat]: [number, number], km: number) {
 /** Free geocoder (Nominatim). Australia-biased. Be polite: 1 req/s. The label follows the precision (lib/place.ts). */
 export async function geocode(q: string, precision: Precision = "exact"): Promise<{ lat: number; lng: number; label: string } | null> {
   const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=au&addressdetails=1&q=${encodeURIComponent(q)}`, { headers: { "Accept-Language": "en" } });
+  if (!r.ok) return null;                                            // throttled or down: the box keeps its words, nothing moves
   const j: NominatimPlace[] = await r.json();
   if (!j[0]) return null;
   return { lat: Number(j[0].lat), lng: Number(j[0].lon), label: searchLabel(j[0], precision) };

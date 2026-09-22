@@ -198,7 +198,6 @@ export async function createQpayInvoice(p: {
   });
 }
 
-export const getQpayInvoice = (invoiceId: string) => qpay<Record<string, unknown>>("GET", `/invoice/${encodeURIComponent(invoiceId)}`);
 export const cancelQpayInvoice = (invoiceId: string) => qpay<Record<string, unknown>>("DELETE", `/invoice/${encodeURIComponent(invoiceId)}`);
 
 /** Ask QPay whether an invoice is paid. The only source of truth for "paid". */

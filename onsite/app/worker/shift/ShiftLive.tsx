@@ -13,6 +13,7 @@ type B = { id: string; status: string; day: string; start_time: string; hours: n
 export function ShiftLive({ b, primary, today }: { b: B; primary: boolean; today: string }) {
   const [pending, start] = useTransition();
   const [now, setNow] = useState(() => Date.now());
+  const [err, setErr] = useState<string | null>(null);
   const tr = useT();
   const locale = useLocale();
   // Status flips on screen immediately; the GPS lookup and the server happen behind it.
@@ -23,15 +24,18 @@ export function ShiftLive({ b, primary, today }: { b: B; primary: boolean; today
 
   function doClockIn() {
     start(async () => {
+      setErr(null);
       setStatus("clocked_in");
       const pos = await new Promise<GeolocationPosition | null>((res) => {
         if (!navigator.geolocation) return res(null);
         navigator.geolocation.getCurrentPosition((p) => res(p), () => res(null), { enableHighAccuracy: true, timeout: 4000, maximumAge: 60000 });
       });
-      await clockIn(b.id, pos?.coords.latitude ?? null, pos?.coords.longitude ?? null);
+      // The optimistic "On site" reverts by itself when the server refuses — without this the worker is never told why.
+      const r = await clockIn(b.id, pos?.coords.latitude ?? null, pos?.coords.longitude ?? null);
+      if (r?.error) setErr(r.error);
     });
   }
-  const doClockOut = () => start(async () => { setStatus("clocked_out"); await clockOut(b.id); });
+  const doClockOut = () => start(async () => { setErr(null); setStatus("clocked_out"); await clockOut(b.id); });
 
   return (
     <div className="space-y-3">
@@ -71,6 +75,8 @@ export function ShiftLive({ b, primary, today }: { b: B; primary: boolean; today
           </div>
         </div>
       )}
+
+      {err && <div className="say-red"><div className="say-title">{err}</div></div>}
 
       {primary && <LazyMap center={[b.lng, b.lat]} zoom={14} pins={[{ id: "s", lat: b.lat, lng: b.lng, kind: "place", label: b.site }]} className="h-40" />}
 

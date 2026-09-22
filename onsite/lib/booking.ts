@@ -2,6 +2,7 @@ import { sql } from "./db";
 import type { TransactionSql } from "postgres";
 import { fmtDay } from "./util";
 import { sendAlertsSoon } from "./alerts";
+import { APP_TZ } from "./siteClock";
 
 /**
  * The one way a worker gets onto a shift. Used by "Take it", by a boss accepting
@@ -86,7 +87,8 @@ export async function bookWorker(a: BookArgs): Promise<BookResult> {
 }
 
 async function today(tx: TransactionSql): Promise<string> {
-  const [r] = await tx`SELECT CURRENT_DATE::text AS d`;
+  // Named, because the connection's own idea of the day is GMT through Neon's pooler (lib/siteClock.ts).
+  const [r] = await tx`SELECT (now() AT TIME ZONE ${APP_TZ})::date::text AS d`;
   return r.d;
 }
 
@@ -103,7 +105,7 @@ export async function recomputeTickets(workerId: string, tx: TransactionSql | ty
         SELECT l.kind AS k FROM licences l
         WHERE l.worker_id = w.user_id
           AND l.status NOT IN ('expired','not_found','mismatch')
-          AND (l.expires_on IS NULL OR l.expires_on >= CURRENT_DATE)
+          AND (l.expires_on IS NULL OR l.expires_on >= (now() AT TIME ZONE ${APP_TZ})::date)
         UNION
         SELECT 'WC' WHERE NOT EXISTS (SELECT 1 FROM licences l WHERE l.worker_id = w.user_id AND l.kind = 'WC')
       ) t ORDER BY k

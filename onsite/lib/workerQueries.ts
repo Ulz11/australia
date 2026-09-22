@@ -1,8 +1,24 @@
 import { sql } from "./db";
+import { siteToday } from "./siteClock";
 
-/** Open shifts within the worker's radius (all days ≥ today), with distance and ticket check. */
+/** Open shifts within the worker's radius (all days ≥ today on the site's clock), with distance and ticket check. */
+/**
+ * Every column openShiftsNear selects. Typed here rather than cast at each call site: lib/workerToday's
+ * NearShift is a subset of this, so a screen can take the narrow view without an `as` — which would also
+ * have silenced a column that had genuinely gone missing from the SELECT.
+ */
+export type NearShiftRow = {
+  id: string; day: string; start_time: string; hours: string; spots: number; role: string; rate: string;
+  note: string | null; tickets_required: string[]; direct_worker_id: string | null;
+  ot_mode: string; ot_after_hours: string; ot_multiplier: string | null; allow_offers: boolean;
+  offered: boolean; project_id: string; site: string; address: string | null; lat: number; lng: number;
+  dist_m: number; boss_name: string; company: string | null;
+  approve_hours_avg: string | null; pay_days_avg: string | null; approved_count: string | null;
+  taken: number; tickets_ok: boolean; avail: string; mine: boolean; notified: boolean;
+};
+
 export async function openShiftsNear(workerId: string, opts: { day?: string; q?: string } = {}) {
-  return sql`
+  return sql<NearShiftRow[]>`
     SELECT s.id, s.day, s.start_time, s.hours, s.spots, s.role, s.rate, s.note, s.tickets_required, s.direct_worker_id,
            s.ot_mode, s.ot_after_hours, s.ot_multiplier, s.allow_offers,
            EXISTS (SELECT 1 FROM offers o WHERE o.shift_id = s.id AND o.worker_id = w.user_id AND o.status = 'pending') AS offered,
@@ -15,11 +31,14 @@ export async function openShiftsNear(workerId: string, opts: { day?: string; q?:
            EXISTS (SELECT 1 FROM bookings b WHERE b.shift_id = s.id AND b.worker_id = w.user_id AND b.status NOT IN ('removed','cancelled')) AS mine,
            EXISTS (SELECT 1 FROM notifications n WHERE n.shift_id = s.id AND n.user_id = w.user_id AND n.kind = 'shift_match') AS notified
     FROM workers w
-    JOIN shifts s ON s.status = 'open' AND s.day >= CURRENT_DATE AND (s.direct_worker_id IS NULL OR s.direct_worker_id = w.user_id)
+    JOIN shifts s ON s.status = 'open' AND (s.direct_worker_id IS NULL OR s.direct_worker_id = w.user_id)
     JOIN projects p ON p.id = s.project_id AND NOT p.archived
     JOIN users us ON us.id = s.boss_id JOIN bosses bo ON bo.user_id = s.boss_id
     LEFT JOIN boss_stats bst ON bst.boss_id = s.boss_id
-    WHERE w.user_id = ${workerId} AND w.home IS NOT NULL
+    -- Today on the site's clock, and down here because the shifts join can't see p.tz yet. CURRENT_DATE was
+    -- yesterday until 10am, so a worker looking for work at 7am was offered shifts that started yesterday.
+    WHERE s.day >= ${siteToday(sql`p.tz`)}
+      AND w.user_id = ${workerId} AND w.home IS NOT NULL
       AND ST_DWithin(w.home, p.location, w.radius_km * 1000)
       AND NOT EXISTS (SELECT 1 FROM blocks bl WHERE bl.boss_id = s.boss_id AND bl.worker_id = w.user_id)
       ${opts.day ? sql`AND s.day = ${opts.day}` : sql``}
@@ -57,10 +76,12 @@ export async function offersFor(workerId: string) {
                    WHERE b.worker_id = w.user_id AND x.day = s.day AND x.id <> s.id AND b.status IN ('accepted','clocked_in')) AS clash
     FROM notifications n
     JOIN workers w ON w.user_id = n.user_id
-    JOIN shifts s ON s.id = n.shift_id AND s.status = 'open' AND s.day >= CURRENT_DATE
+    JOIN shifts s ON s.id = n.shift_id AND s.status = 'open'
     JOIN projects p ON p.id = s.project_id AND NOT p.archived
     JOIN users us ON us.id = s.boss_id JOIN bosses bo ON bo.user_id = s.boss_id
-    WHERE n.user_id = ${workerId} AND n.kind = 'shift_match'
+    -- Today on the site's clock (lib/siteClock.ts); down here because the shifts join can't see p.tz yet.
+    WHERE s.day >= ${siteToday(sql`p.tz`)}
+      AND n.user_id = ${workerId} AND n.kind = 'shift_match'
       AND (s.direct_worker_id IS NULL OR s.direct_worker_id = w.user_id)
       AND s.spots > (SELECT COUNT(*) FROM bookings b WHERE b.shift_id = s.id AND b.status NOT IN ('removed','cancelled'))
       AND NOT EXISTS (SELECT 1 FROM bookings b WHERE b.shift_id = s.id AND b.worker_id = w.user_id AND b.status <> 'cancelled')

@@ -5,6 +5,7 @@ import webpush from "web-push";
 import { sql } from "./db";
 import { sendSms } from "./sms";
 import { URGENT_HOURS } from "./rules";
+import { siteMoment } from "./siteClock";
 import { hit, refund } from "./ratelimit";
 
 /**
@@ -132,7 +133,11 @@ export async function deliverAlerts(limit = 200): Promise<{ claimed: number; pus
     WHERE n.id = c.id AND u.id = n.user_id
     RETURNING n.id, n.user_id, n.shift_id, n.kind, n.body, u.role, u.phone, n.sms_at, n.urgent,
       (SELECT s.boss_id FROM shifts s WHERE s.id = n.shift_id) AS boss_id,
-      (SELECT (s.day + s.start_time) BETWEEN now() AND now() + make_interval(hours => ${URGENT_HOURS}) FROM shifts s WHERE s.id = n.shift_id) AS starts_soon,
+      -- "Within three hours" is a question about a real instant, so the site says which clock its start time is
+      -- on (lib/siteClock.ts). Read on the connection's clock a 6:30am start looks ten hours later than it is:
+      -- this turned orange, and bought a text, the evening before — then stayed quiet at 3:30am when it was true.
+      (SELECT ${siteMoment(sql`s.day + s.start_time`, sql`p.tz`)} BETWEEN now() AND now() + make_interval(hours => ${URGENT_HOURS})
+       FROM shifts s JOIN projects p ON p.id = s.project_id WHERE s.id = n.shift_id) AS starts_soon,
       (SELECT to_char(s.day, 'Dy DD Mon') || ', ' || lower(to_char(s.start_time, 'FMHH12:MIam')) FROM shifts s WHERE s.id = n.shift_id) AS shift_when`;
   const out = { claimed: rows.length, push: 0, sms: 0, expired: expired.count, gone: 0 };
   if (!rows.length) return out;

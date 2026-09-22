@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import { bearerToken } from "@/lib/session";
 import { expandStaleShifts } from "@/lib/matching";
 import { reconcileOpenInvoices } from "@/lib/billing";
 import { closeBillingPeriods } from "@/lib/invoicing";
@@ -16,7 +17,8 @@ import { warmAudToMnt } from "@/lib/fxRate";
  *  asks the White Card register again about cards it couldn't answer for (at most 5 a run), writes the
  *  shift reminders that are due (lib/reminders.ts), and sends any alert a crash left unsent. */
 export async function GET(req: Request) {
-  const key = req.headers.get("authorization")?.replace("Bearer ", "") ?? new URL(req.url).searchParams.get("key") ?? "";
+  // The secret travels only as a bearer header, which is what Vercel Cron sends: a query string would end up in access logs.
+  const key = bearerToken(req.headers.get("authorization")) ?? "";
   const secret = process.env.CRON_SECRET;
   if (!secret) return new Response("CRON_SECRET not set", { status: 503 });
   const a = Buffer.from(key), b = Buffer.from(secret);
@@ -30,8 +32,10 @@ export async function GET(req: Request) {
       .then((q) => ({ source: q?.source ?? null, as_of: q?.asOf ?? null }))
       .catch((e) => { console.error("fx warm failed", e?.name ?? "error"); return { error: "fx failed" }; }),
   ]);
-  // Ends the trials that are up and closes the periods that are over — on its own, after matching, so a
-  // billing fault can never stop a shift being filled. Counts only, never a boss id.
+  // Closes the fortnights that are over and invoices the introductions in them — on its own, after matching,
+  // so a billing fault can never stop a shift being filled. Answers { closed, invoiced }: counts only, never
+  // a boss id. `closed` is always the larger of the two, because a fortnight in which OnSite introduced
+  // nobody is closed without an invoice being written, which is the ordinary case rather than a failure.
   const billing = await closeBillingPeriods().catch((e) => {
     console.error("billing run failed", e?.code ?? e?.name ?? "error");
     return { error: "billing failed" };

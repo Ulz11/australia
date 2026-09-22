@@ -6,12 +6,21 @@ import { disagree, workerLogCall } from "@/actions/worker";
 import { fmtDay } from "@/lib/util";
 import { money } from "@/lib/award";
 import type { HistoryRow } from "@/lib/profileStats";
+import type { T } from "@/lib/i18n";
 
 /**
  * One shift on the worker's record: day, site, boss, what it paid. Shared by the ten most recent on
  * /worker/me and the full list on /worker/me/shifts, so a change to the row happens once.
+ *
+ * `loud` is the orange law reaching a list: orange means "this needs you, now" and a screen gets one. A row
+ * cannot know how many of its neighbours are also shouting, or what the bento above it already spent the
+ * colour on, so the screen picks the one row that gets it and every other mismatch draws `say-soft` — same
+ * words, same icon, same two buttons, one step quieter.
+ *
+ * `t` arrives as a prop rather than from `await getT()` here, because this row is drawn inside a `.map()`
+ * on two different screens and both of them already hold the one cached dictionary for the request.
  */
-export function ShiftRow({ h, gross }: { h: HistoryRow; gross: (h: HistoryRow) => number }) {
+export function ShiftRow({ h, t, gross, loud = true }: { h: HistoryRow; t: T; gross: (h: HistoryRow) => number; loud?: boolean }) {
   const first = h.boss_name.split(" ")[0];
   return (
     <div className="py-3">
@@ -21,27 +30,28 @@ export function ShiftRow({ h, gross }: { h: HistoryRow; gross: (h: HistoryRow) =
       </div>
       {/* Hours that don't match are waiting on this worker to say something — orange until they do. */}
       {h.hours_approved != null && Number(h.hours_approved) !== Number(h.hours_worked) && (
-        <div className={`mt-2 ${h.disputed_at ? "say-grey" : "say-orange"}`}>
+        <div className={`mt-2 ${h.disputed_at ? "say-grey" : loud ? "say-orange" : "say-soft"}`}>
           <div className="flex items-start gap-3">
             {h.disputed_at
               ? <Check size={22} strokeWidth={2.25} aria-hidden className="shrink-0 mt-0.5 text-go" />
               : <CircleAlert size={22} strokeWidth={2.25} aria-hidden className="shrink-0 mt-0.5" />}
             <div className="min-w-0 flex-1">
-              <div className="font-bold">Boss approved {Number(h.hours_approved)}h. You recorded {Number(h.hours_worked)}h.</div>
-              <div className="say-sub">{h.disputed_at ? "You've told them you disagree. Both numbers stay on record." : "Both numbers stay on record. Best fix: ring them."}</div>
+              <div className="font-bold">{t("Boss approved {n}h. You recorded {worked}h.", { n: Number(h.hours_approved), worked: Number(h.hours_worked) })}</div>
+              <div className="say-sub">{h.disputed_at ? t("You've told them you disagree. Both numbers stay on record.") : t("Both numbers stay on record. Best fix: ring them.")}</div>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2 mt-2">
             <CallLink phone={h.boss_phone} name={h.boss_name} onCall={workerLogCall.bind(null, h.boss_id, h.id)} className="btn bg-white text-ink btn-sm w-full" />
             {!h.disputed_at && (
               <ConfirmButton action={disagree.bind(null, h.id)} className="btn bg-white text-ink btn-sm w-full" danger={false}
-                title={`Tell ${first} you disagree?`}
+                title={t("Tell {name} you disagree?", { name: first })}
                 details={[
-                  `${first} gets a message that you disagree with the ${Number(h.hours_approved)}h approved for ${fmtDay(h.day)}.`,
-                  `Both numbers stay on record: you recorded ${Number(h.hours_worked)}h.`,
-                  "Nothing is changed by itself — the two of you sort out the number.",
+                  t("{name} gets a message that you disagree with the {n}h approved for {day}.",
+                    { name: first, n: Number(h.hours_approved), day: fmtDay(h.day) }),
+                  t("Both numbers stay on record: you recorded {n}h.", { n: Number(h.hours_worked) }),
+                  t("Nothing is changed by itself — the two of you sort out the number."),
                 ]}
-                confirmLabel="Yes, tell them" cancelLabel="Not now">I disagree</ConfirmButton>
+                confirmLabel={t("Yes, tell them")} cancelLabel={t("Not now")}>{t("I disagree")}</ConfirmButton>
             )}
           </div>
         </div>
@@ -49,3 +59,11 @@ export function ShiftRow({ h, gross }: { h: HistoryRow; gross: (h: HistoryRow) =
     </div>
   );
 }
+
+/**
+ * The rows that would take the screen's one orange: hours that don't match and nothing said about it yet.
+ * A row the worker has already disputed is grey whatever the screen decides, so it never asks for the colour.
+ * Both screens pass the newest of these to `loud`.
+ */
+export const wantsAnAnswer = (h: HistoryRow) =>
+  h.hours_approved != null && Number(h.hours_approved) !== Number(h.hours_worked) && !h.disputed_at;

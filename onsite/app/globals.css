@@ -2,62 +2,328 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: light; }
-html, body { height: 100%; background: #F3F4F6; color: #15171A; -webkit-tap-highlight-color: transparent; }
-body { font-family: 'Archivo', system-ui, sans-serif; font-size: 17px; line-height: 1.35; }
+/*
+ * ─────────────────────────────────────────────────────────────────────────────
+ * THE MATERIAL
+ *
+ * Depth is a shadow now, not a border. The old rule ("a 1px line reads in the sun and a shadow does not")
+ * produced a screen of 2px #D9DCE1 boxes — and that border measured 1.37:1 against white, so it was never
+ * doing the accessibility work it claimed to do. A soft shadow plus a genuinely light canvas separates a
+ * card from the paper better, and where a boundary actually carries meaning — a control you have to find —
+ * it is drawn at --edge, which measures 3.44:1 on white and 3.08:1 on the canvas, and therefore does.
+ *
+ * Three numbers still come from the job and not from taste: 56px primary buttons, 44px minimum taps, an
+ * 88px linking row. A gloved thumb on a ladder sets those, so they did not move.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+:root {
+  color-scheme: light;
+
+  /* The frame. A phone at 375x667 leaves the content between the sticky header and the fixed TabBar, and
+     every home screen is budgeted against it, so the bar heights are read from here, never re-typed. */
+  --header-h: 72px;          /* a root screen, carrying the large title */
+  --header-sub-h: 56px;      /* a pushed screen, carrying Back + a compact title */
+  --tabbar-h: 64px;
+  --bento-gap: 12px;
+  --cell-row: 88px;
+
+  /* Surfaces */
+  --canvas: #F2F2F7;         /* system grey, not the old blue-grey #F3F4F6 */
+  --surface: #FFFFFF;
+
+  /* The label ramp. label-1 and label-2 are TEXT and both clear 4.5:1 on white and on the canvas.
+     label-3 is decoration only — an empty-state glyph, a chart gridline — and is never allowed to carry
+     a word or to be the only thing marking a control. It measures 1.74:1 and that is the whole reason. */
+  --label-1: #15171A;        /* 17.96:1 on white · 16.10:1 on canvas */
+  --label-2: #6B6B70;        /*  5.30:1 on white ·  4.75:1 on canvas */
+  --label-3: rgba(60, 60, 67, 0.30);
+  --on-mat-2: #565659;       /* secondary text sitting on a translucent bar; see --mat below */
+
+  /* Lines. --sep and --hair group things; --edge identifies a control, and only --edge clears 3:1. */
+  --sep: rgba(60, 60, 67, 0.12);
+  --hair: rgba(60, 60, 67, 0.10);
+  --edge: #8A8A8E;           /* 3.44:1 on white · 3.08:1 on the canvas */
+
+  /* Fills */
+  --fill-1: rgba(120, 120, 128, 0.12);   /* inputs, segmented tracks, chips */
+  --fill-2: rgba(21, 23, 26, 0.06);      /* a tinted secondary button */
+  --fill-3: rgba(21, 23, 26, 0.10);      /* the same, pressed */
+
+  /* Depth */
+  --shadow-card:  0 1px 2px rgba(16, 24, 40, 0.04), 0 8px 24px -8px rgba(16, 24, 40, 0.10);
+  --shadow-raise: 0 2px 6px rgba(16, 24, 40, 0.06), 0 16px 32px -12px rgba(16, 24, 40, 0.14);
+  --shadow-thumb: 0 3px 8px rgba(16, 24, 40, 0.12), 0 1px 1px rgba(16, 24, 40, 0.04);
+  --shadow-btn:   0 1px 2px rgba(16, 24, 40, 0.10);
+
+  /* Radii */
+  --r-card: 20px;
+  --r-ctl: 14px;
+  --r-thumb: 9px;
+
+  /* Motion */
+  --dur: 180ms;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+html, body { height: 100%; background: var(--canvas); color: var(--label-1); -webkit-tap-highlight-color: transparent; }
+body {
+  font-family: 'Archivo', system-ui, sans-serif;
+  font-size: 17px;
+  line-height: 1.35;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
 * { box-sizing: border-box; }
 input, select, textarea, button { font: inherit; }
 
 @layer base {
-  /* One focus ring for the whole app: ink, with a white halo so it also shows on ink, green and orange blocks. */
+  /* One focus ring for the whole app: ink, with a white halo so it also shows on ink, green and orange
+     blocks. Controls that carry their own 1px --edge re-state it below, so focusing never erases it. */
   :focus-visible { outline: 3px solid #15171A; outline-offset: 2px; box-shadow: 0 0 0 2px #FFFFFF; }
+
+  /* Headings and figures are where the tracking lives. Body text keeps its natural spacing — Devanagari,
+     Mongolian and Chinese all fall through to a system face here and negative tracking hurts them. */
+  h1, h2, h3 { letter-spacing: -0.02em; }
 }
 
 @layer components {
   /*
-   * Buttons: one primary per screen. Big enough for a gloved thumb.
-   * Ink is the button colour. Orange is never "press me" — it only ever means "this needs you".
+   * ── THE BARS ───────────────────────────────────────────────────────────────
+   * Translucent, blurred, saturated — the one place in the app where a surface is a material rather than
+   * a colour. The @supports runs the right way round: solid canvas is the default and the blur is the
+   * enhancement, so a browser without backdrop-filter gets an opaque bar and not a smear.
+   *
+   * .mat is 72% and carries ink only. .mat-strong is 86% because the TabBar carries a *secondary* label,
+   * and at 72% over a full-width ink cell that label measured 2.57:1. At 86% with --on-mat-2 it is 4.90:1
+   * in that same worst case.
    */
-  .btn { @apply inline-flex items-center justify-center gap-2 rounded-2xl px-5 min-h-[56px] font-bold text-lg transition active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none select-none text-center leading-tight; }
-  .btn-primary { @apply btn bg-ink text-white w-full; }
-  .btn-dark { @apply btn-primary; }              /* the same ink button; the name is kept so call sites don't churn */
-  .btn-ghost { @apply btn bg-white border-2 border-line text-ink w-full; }
-  .btn-danger { @apply btn bg-white border-2 border-warn text-warn w-full; }
-  .btn-destroy { @apply btn bg-warn text-white w-full; }   /* the red one you press in the confirm sheet */
-  .btn-sm { @apply min-h-[44px] text-base px-4 w-auto; }
-  .card { @apply bg-white rounded-2xl border border-line p-4; }
-  .label { @apply text-[12px] uppercase tracking-[0.12em] text-steel font-bold; }
-  .input { @apply w-full rounded-2xl border-2 border-line bg-white px-4 min-h-[56px] text-lg outline-none focus:border-ink; }
-  .chip { @apply inline-flex items-center rounded-full border-2 border-line bg-white px-4 min-h-[44px] text-base font-semibold; }
-  .chip-on { @apply border-ink bg-ink text-white; }
-  .num { font-variant-numeric: tabular-nums; }
-  /* The hazard stripe is the brand mark, not a state. Nothing else in the app is striped. */
-  .stripe { background: repeating-linear-gradient(135deg, #FF7A00 0 12px, #15171A 12px 24px); height: 6px; }
-  /* A "say" block: one coloured sentence that tells you the state. Orange = it needs you, and never alone — icon and words too. */
-  .say { @apply rounded-2xl p-4 leading-snug; }
-  .say-grey { @apply say bg-site text-ink; }
-  .say-green { @apply say bg-go text-white; }
-  .say-orange { @apply say bg-hv text-ink; }
-  .say-dark { @apply say bg-ink text-white; }
-  .say-red { @apply say bg-warn text-white; }
-  .say-title { @apply text-xl font-extrabold; }
-  .say-sub { @apply text-base opacity-80 mt-0.5; }
-  /* Segmented toggle */
-  .seg { @apply grid bg-white border-2 border-line rounded-2xl p-1 gap-1; }
-  .seg-item { @apply rounded-xl min-h-[48px] flex items-center justify-center font-bold text-base text-steel; }
-  .seg-on { @apply bg-ink text-white; }
-  /* A quiet list of rarer actions: one row each, icon first. */
-  .acts { @apply bg-white rounded-2xl border border-line overflow-hidden divide-y divide-line; }
-  .act { @apply w-full flex items-center gap-3 text-left font-bold min-h-[56px] px-4 py-3 leading-tight; }
+  .mat        { background: var(--canvas); border-bottom: 1px solid var(--sep); }
+  .mat-strong { background: var(--canvas); border-top: 1px solid var(--sep); }
 }
 
-/* The confirm sheet (components/ConfirmSheet.tsx): a bottom sheet on a phone, a card in the middle on a big screen. */
-/* The dim is painted by the dialog itself (it covers the viewport), not by ::backdrop, so it shows up in a
-   screenshot and in browsers that style ::backdrop differently. */
-dialog.sheet { @apply m-0 p-0 w-full h-full max-w-none max-h-none open:flex items-end justify-center sm:items-center; background: rgba(21, 23, 26, 0.6); }
+@supports ((backdrop-filter: blur(20px)) or (-webkit-backdrop-filter: blur(20px))) {
+  .mat {
+    background: rgba(242, 242, 247, 0.72);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    backdrop-filter: blur(20px) saturate(180%);
+  }
+  .mat-strong {
+    background: rgba(242, 242, 247, 0.86);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    backdrop-filter: blur(20px) saturate(180%);
+  }
+}
+
+@layer components {
+  /*
+   * ── HEADER ─────────────────────────────────────────────────────────────────
+   * A root screen gets the large title: 32/700 at -0.02em, which is where the hierarchy now comes from.
+   * A pushed screen gets Back and a compact 19/700 centre title, and is 16px shorter than the old bar —
+   * so the large title on the five root screens is paid for out of the drill-downs, not out of content.
+   */
+  .hdr        { @apply sticky top-0 z-30; }
+  .hdr-row    { @apply max-w-md mx-auto flex gap-2 px-4; }
+  .hdr-root .hdr-row { min-height: var(--header-h); @apply items-end pt-4 pb-2.5; }
+  .hdr-sub  .hdr-row { min-height: var(--header-sub-h); @apply items-center; }
+  .hdr-title  { @apply flex-1 min-w-0; color: var(--label-1); }
+  /* Two lines, not an ellipsis: a root title is often a greeting with somebody's name in it, and
+     "Good morning, Aleksand…" is worse than a header that is briefly 32px taller. min-height is a
+     floor, so the bar grows for the long case and every other screen pays nothing. */
+  .hdr-root .hdr-title { @apply text-[32px] font-bold leading-[1.06] tracking-[-0.02em] line-clamp-2; }
+  .hdr-sub  .hdr-title { @apply text-[19px] font-bold leading-tight tracking-[-0.01em] text-center truncate; }
+  .hdr-back   { @apply inline-flex items-center gap-0.5 -ml-2 pr-1 pl-1 min-h-[44px] shrink-0 text-[17px] font-semibold rounded-xl; color: var(--label-1); }
+
+  /*
+   * ── TABBAR ─────────────────────────────────────────────────────────────────
+   * The active tab is marked three ways, because no one of them clears 3:1 on its own: an ink indicator
+   * at the top edge (12.5:1 over the bar), a tinted pill behind the icon, and ink/700 against the
+   * secondary --on-mat-2 of the others.
+   */
+  .tab       { @apply relative flex flex-col items-center justify-center gap-0.5 pt-2 pb-2 min-h-[64px] text-[14px] leading-tight font-semibold; color: var(--on-mat-2); transition: color var(--dur) var(--ease); }
+  .tab-pill  { @apply flex items-center justify-center w-11 h-[30px] rounded-[15px]; transition: background-color var(--dur) var(--ease); }
+  .tab[aria-current="page"] { color: var(--label-1); @apply font-bold; }
+  .tab[aria-current="page"] .tab-pill { background: var(--fill-2); }
+  .tab-mark  { @apply absolute top-0 h-[3px] w-6 rounded-b-full; background: var(--label-1); }
+  .tab-badge { @apply absolute top-1 right-[16%] bg-hv text-ink text-sm font-extrabold rounded-full min-w-[22px] h-[22px] flex items-center justify-center px-1; box-shadow: 0 0 0 2px var(--canvas); }
+
+  /*
+   * ── BUTTONS ────────────────────────────────────────────────────────────────
+   * One primary per screen, 56px tall, no border on any of them. Ink is the press-me colour. Orange is
+   * never "press me" — it only ever means "this needs you".
+   *
+   * The secondary and danger buttons keep a 1px --edge. That is not the old 2px slab coming back: the old
+   * one was #D9DCE1 at 1.37:1 and decorative, this one is 3.44:1 and is the only thing telling a gloved
+   * thumb in the sun where a tinted button stops.
+   */
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-[14px] px-5 min-h-[56px] font-bold text-lg tracking-[-0.01em] select-none text-center leading-tight transition-[transform,background-color,box-shadow,opacity] duration-[180ms] ease-[cubic-bezier(0.2,0.8,0.2,1)] active:scale-[0.97] disabled:opacity-40 disabled:pointer-events-none; }
+  .btn-primary { @apply btn bg-ink text-white w-full; box-shadow: var(--shadow-btn); }
+  .btn-dark    { @apply btn-primary; box-shadow: var(--shadow-btn); }   /* the same ink button; the name is kept so call sites don't churn */
+  .btn-ghost   { @apply btn text-ink w-full border; background: var(--fill-2); border-color: var(--edge); }
+  .btn-ghost:active { background: var(--fill-3); }
+  .btn-danger  { @apply btn text-warn w-full border border-warn; background: rgba(198, 40, 40, 0.08); }
+  .btn-destroy { @apply btn bg-warn text-white w-full; box-shadow: var(--shadow-btn); }
+  .btn-sm      { @apply min-h-[44px] text-base px-4 w-auto rounded-xl; }
+  .btn-ghost:focus-visible, .btn-danger:focus-visible { box-shadow: 0 0 0 2px #FFFFFF; }
+
+  /*
+   * ── SURFACES ───────────────────────────────────────────────────────────────
+   * White, 20px, and lifted off the canvas by shadow. The hairline is a whisper for the sunlit case and
+   * for a card that lands on white; it is not the edge that does the work.
+   */
+  .card { @apply bg-white rounded-[20px] p-4; box-shadow: inset 0 0 0 1px var(--hair), var(--shadow-card); }
+
+  /* The eyebrow over a block of facts. 14px is the floor and this is one of only two places allowed to
+     use it (the other is a chart axis). Still banned inside a cell — see .c-label. */
+  .label { @apply text-[14px] uppercase tracking-[0.06em] font-bold; color: var(--label-2); }
+
+  /*
+   * ── FIELDS ─────────────────────────────────────────────────────────────────
+   * Filled, not outlined. 56px stays. Ink on the fill measures 15.63:1.
+   */
+  .input { @apply w-full rounded-[14px] px-4 min-h-[56px] text-lg outline-none border; background: var(--fill-1); border-color: var(--edge); color: var(--label-1); transition: background-color var(--dur) var(--ease), border-color var(--dur) var(--ease); }
+  .input::placeholder { color: var(--label-2); opacity: 1; }
+  .input:focus-visible { border-color: var(--label-1); box-shadow: 0 0 0 2px #FFFFFF; }
+
+  .chip { @apply inline-flex items-center rounded-full px-4 min-h-[44px] text-base font-semibold border transition-[transform,background-color,color] duration-[180ms] ease-[cubic-bezier(0.2,0.8,0.2,1)] active:scale-[0.97]; background: var(--fill-1); border-color: var(--edge); color: var(--label-1); }
+  .chip-on { @apply bg-ink text-white; border-color: #15171A; }
+  .chip:focus-visible { box-shadow: 0 0 0 2px #FFFFFF; }
+
+  /* Figures. Tabular so a column of money lines up, tight so it reads as one object. */
+  .num { font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+
+  /* The hazard stripe is the brand mark, not a state. Nothing else in the app is striped. */
+  .stripe { background: repeating-linear-gradient(135deg, #FF7A00 0 12px, #15171A 12px 24px); height: 6px; }
+
+  /*
+   * ── SAY ────────────────────────────────────────────────────────────────────
+   * One coloured sentence that tells you the state. Orange = it needs you, and never alone — icon and
+   * words too. The sub used to be 80% of the title's colour, which put white-on-green at 3.24:1. It is
+   * full strength now and separates by size and weight instead, which is how the rest of this file works.
+   */
+  .say       { @apply rounded-[20px] p-4 leading-snug; }
+  .say-grey  { @apply say text-ink; background: var(--fill-1); }
+  .say-green { @apply say bg-go text-white; }
+  .say-orange{ @apply say bg-hv text-ink; }
+  /* The step below orange, and the same one `.cell-soft` is: real, worth reading, but not the one thing
+     on this screen that needs you now. hv-dark rings it, not hv: #FF7A00 on #FFF1E4 is 2.36:1. */
+  .say-soft  { @apply say bg-hv-soft text-ink; box-shadow: inset 0 0 0 1.5px #D96400; }
+  .say-dark  { @apply say bg-ink text-white; }
+  .say-red   { @apply say bg-warn text-white; }
+  .say-title { @apply text-xl font-extrabold tracking-[-0.01em]; }
+  .say-sub   { @apply text-base font-medium mt-1; }
+
+  /*
+   * ── SEGMENTED CONTROL ──────────────────────────────────────────────────────
+   * A tinted track with a white thumb on a small shadow. The state is carried by the thumb and by
+   * ink/700 against --label-2/600, which measure 3.39:1 against each other.
+   */
+  .seg      { @apply grid rounded-[12px] p-1 gap-1; background: var(--fill-1); }
+  .seg-item { @apply rounded-[9px] min-h-[48px] flex items-center justify-center font-semibold text-base transition-[background-color,color,box-shadow] duration-[180ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]; color: var(--label-2); }
+  .seg-on   { @apply bg-white font-bold; color: var(--label-1); box-shadow: var(--shadow-thumb); }
+
+  /* A quiet list of rarer actions: one row each, icon first. */
+  .acts { @apply bg-white rounded-[20px] overflow-hidden; box-shadow: inset 0 0 0 1px var(--hair), var(--shadow-card); }
+  .acts > * + * { border-top: 1px solid var(--sep); }
+  .act  { @apply w-full flex items-center gap-3 text-left font-semibold min-h-[56px] px-4 py-3 leading-tight transition-[background-color] duration-[180ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]; }
+  .act:active { background: var(--fill-1); }
+
+  /*
+   * ── THE BENTO ──────────────────────────────────────────────────────────────
+   * Two columns at every width and no more: the content column is 343px on an iPhone SE, so a third
+   * column would leave 108px for a money figure and break "$1,240" over two lines. Rows are an 88px
+   * floor with auto above it — a cell may grow for a long Mongolian label, never shrink below the
+   * thumb floor. The seam went 8px → 12px: the cards are lifted now and they need the air.
+   *
+   * A real mosaic needs all four shapes, so all four have a class. A 2x2 is 188px tall (88+12+88) and
+   * that is the tile a Heatmap, a MonthBars or a SegmentBar is meant to fill — see .cell-fill.
+   */
+  .bento { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--bento-gap); grid-auto-rows: minmax(var(--cell-row), auto); }
+  .b-w2 { grid-column: span 2; }
+  .b-h2 { grid-row: span 2; }
+  .b-h3 { grid-row: span 3; }
+
+  /*
+   * ── CELLS ──────────────────────────────────────────────────────────────────
+   * A cell is a card. When it links, the whole 88px is the target — the chevron is decoration, and a
+   * 22px chevron is what you miss when you are one-handed on a ladder.
+   *
+   * The toned cells ring themselves with box-shadow rather than a border, so a toned cell and a white
+   * cell in the same row have identical inner geometry and the labels line up across the seam.
+   */
+  .cell       { @apply relative rounded-[20px] p-4 min-w-0 flex flex-col justify-between bg-white text-ink; box-shadow: inset 0 0 0 1px var(--hair), var(--shadow-card); }
+  .cell-link  { @apply transition-[transform,box-shadow] duration-[180ms] ease-[cubic-bezier(0.2,0.8,0.2,1)] active:scale-[0.985]; }
+  .cell-link:active { box-shadow: inset 0 0 0 1px var(--hair), var(--shadow-btn); }
+  /* ink is the press-me colour on every button in the app, so an ink cell that goes nowhere is a lie. */
+  .cell-ink   { @apply bg-ink text-white; box-shadow: var(--shadow-card); }
+  .cell-go    { @apply bg-go text-white; box-shadow: var(--shadow-card); }
+  .cell-gos   { @apply bg-go-soft text-ink; box-shadow: inset 0 0 0 1.5px #14803F, var(--shadow-card); }
+  .cell-warn  { @apply bg-warn text-white; box-shadow: var(--shadow-card); }
+  .cell-warns { @apply bg-warn-soft text-ink; box-shadow: inset 0 0 0 1.5px #C62828, var(--shadow-card); }
+  /* one per screen, always with a CircleAlert and words */
+  .cell-needs { @apply bg-hv text-ink active:bg-hv-dark; box-shadow: var(--shadow-card); }
+  .cell-soft  { @apply bg-hv-soft text-ink; box-shadow: inset 0 0 0 1.5px #D96400, var(--shadow-card); }
+  .cell-frame { @apply p-1; background: var(--fill-1); box-shadow: none; }   /* map chrome only; never carries a number */
+
+  /* A cell whose content is a drawing. The label sits on top and the visual takes every pixel under it,
+     which is the only way a Heatmap or a SegmentBar earns a 2x2 instead of sitting under a heading. */
+  .cell-fill { @apply flex-1 min-h-0 flex flex-col justify-center; }
+
+  /*
+   * Type inside a cell, and nothing else uses these. .label (14px) is banned in here: it is smaller than
+   * the app's own 17px body, and a boss reading it at arm's length in the sun cannot.
+   */
+  .c-label { @apply text-[16px] leading-[1.2] font-bold tracking-[-0.01em]; }
+  .c-sub   { @apply text-[15px] leading-[1.25] font-medium mt-1; }
+  .c-prose { color: var(--label-2); }             /* prose only — a number or a due date stays full ink */
+  .c-fig   { @apply text-[30px] leading-none font-extrabold num; }
+  .c-fig-2 { @apply text-[34px] leading-none font-extrabold num; }
+  .c-hero  { @apply text-[48px] leading-none font-extrabold num; }
+  .c-unit  { @apply text-[18px] leading-none font-bold; }   /* the word after a figure, in its colour */
+  /* On a filled cell the quiet prose colour has to be the cell's own, or steel lands as a grey smudge.
+     Ink has the headroom for 82% (12.24:1). Green and red do not: white on go is only 5.01:1 and on warn
+     5.62:1 to begin with, so dimming to 82% put prose at 3.92:1 and 4.20:1 — both under AA. They stay
+     full strength and separate by size and weight instead, exactly as `.say-sub` above does. */
+  .cell-ink .c-prose { color: rgba(255, 255, 255, 0.82); }
+  .cell-go .c-prose, .cell-warn .c-prose { color: #FFFFFF; }
+
+  /*
+   * The action bar along the foot of a 2x2 hero. It bleeds back out over the cell's padding and borrows
+   * the cell's bottom corners, so the hero reads as one object with a foot rather than a card in a card.
+   */
+  .cell-bar { @apply -mx-4 -mb-4 mt-3 min-h-[64px] rounded-b-[20px] overflow-hidden grid grid-flow-col auto-cols-fr gap-2 p-2; background: rgba(21, 23, 26, 0.06); }
+  .cell-ink .cell-bar, .cell-go .cell-bar, .cell-warn .cell-bar { background: rgba(255, 255, 255, 0.14); }
+  .cell-act { @apply rounded-[12px] min-h-[48px] flex items-center justify-center font-bold text-[16px] px-3 text-center leading-tight bg-ink text-white transition-transform duration-[180ms] ease-[cubic-bezier(0.2,0.8,0.2,1)] active:scale-[0.97]; }
+  /* Keeps its ink ring: white on hazard orange is 2.61:1, so without it the ghost button has no edge. */
+  .cell-act-ghost { @apply cell-act bg-white text-ink; box-shadow: inset 0 0 0 1.5px #15171A; }
+
+  /* The approve-hours stepper. 56x56 a side, because the boss does this standing up and one-handed, and a
+     mis-tap here is the difference between what someone worked and what they get paid. */
+  .step { @apply rounded-[16px] w-14 h-14 flex items-center justify-center font-extrabold text-2xl border transition-[transform,background-color] duration-[180ms] ease-[cubic-bezier(0.2,0.8,0.2,1)] active:scale-[0.94]; background: var(--fill-1); border-color: var(--edge); color: var(--label-1); }
+  .step:focus-visible { box-shadow: 0 0 0 2px #FFFFFF; }
+}
+
+/* Nothing moves for someone who asked for nothing to move. Scoped to the app's own surfaces rather than
+   a global `*`, so a browser's own scrolling and form behaviour is left alone. */
+@media (prefers-reduced-motion: reduce) {
+  .btn, .chip, .cell-link, .act, .seg-item, .input, .step, .tab, .tab-pill, .cell-act,
+  dialog.sheet, dialog.sheet .sheet-panel {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+  }
+  .btn:active, .chip:active, .cell-link:active, .cell-act:active, .step:active { transform: none !important; }
+}
+
+/* The confirm sheet (components/ConfirmSheet.tsx): a bottom sheet on a phone, a card in the middle on a
+   big screen. The dim is painted by the dialog itself (it covers the viewport), not by ::backdrop, so it
+   shows up in a screenshot and in browsers that style ::backdrop differently. */
+dialog.sheet { @apply m-0 p-0 w-full h-full max-w-none max-h-none open:flex items-end justify-center sm:items-center; background: rgba(21, 23, 26, 0.55); }
 dialog.sheet::backdrop { background: transparent; }
+@supports ((backdrop-filter: blur(8px)) or (-webkit-backdrop-filter: blur(8px))) {
+  dialog.sheet { background: rgba(21, 23, 26, 0.45); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+}
 @media (prefers-reduced-motion: no-preference) {
-  dialog.sheet[open] .sheet-panel { animation: sheet-up 0.22s cubic-bezier(0.2, 0.8, 0.2, 1); }
+  dialog.sheet[open] .sheet-panel { animation: sheet-up 0.28s cubic-bezier(0.2, 0.8, 0.2, 1); }
   dialog.sheet[open] { animation: sheet-fade 0.22s ease-out; }
   @media (min-width: 640px) {
     dialog.sheet[open] .sheet-panel { animation-name: sheet-pop; }
@@ -71,19 +337,39 @@ dialog.sheet::backdrop { background: transparent; }
  * Days on the tools (components/Heatmap.tsx): one ink at four steps, so a shade reads as an amount rather
  * than a state. currentColor, not a hex, so the grid follows whatever the text colour is — light or dark.
  * Orange is deliberately absent: a long day is not a warning.
+ *
+ * The empty step sits at 0.16, not 0.08. At 0.08, on a phone at half brightness in the sun, a day off and
+ * the paper behind it are the same colour and the grid reads as failed-to-load rather than as a quiet week.
  */
-.hm-0 { fill: currentColor; fill-opacity: 0.08; }
+.hm-0 { fill: currentColor; fill-opacity: 0.16; }
 .hm-1 { fill: currentColor; fill-opacity: 0.30; }
 .hm-2 { fill: currentColor; fill-opacity: 0.60; }
 .hm-3 { fill: currentColor; fill-opacity: 0.92; }
-.hm-label { font-size: 10px; font-weight: 700; fill: currentColor; fill-opacity: 0.5; }
+/* currentColor, not the old flat #D9DCE1: on a `.cell-ink` heatmap that hex was a grey scratch on black. */
+.hm-0-edge { stroke: currentColor; stroke-opacity: 0.28; stroke-width: 1; }
+/* 0.70, not 0.55: at 0.55 a month letter composites to ~#7E7E7E and measures 4.01:1, and an axis
+   letter is still text. 0.70 is 6.61:1 on a white cell and 9.16:1 on an ink one. */
+.hm-label { font-size: 14px; font-weight: 700; fill: currentColor; fill-opacity: 0.70; }
 .hm-key { display: inline-block; width: 12px; height: 12px; border-radius: 3px; background: currentColor; }
-.hm-key-0 { opacity: 0.08; }
+/* The legend swatch is the same square as a day on the grid. If the two drift apart the key stops being a key. */
+.hm-key-0 { opacity: 0.16; }
 .hm-key-1 { opacity: 0.30; }
 .hm-key-2 { opacity: 0.60; }
 .hm-key-3 { opacity: 0.92; }
 
-/* A field focused behind the job form's sticky bar still scrolls clear of it. */
-html:has(.stickybar) { scroll-padding-bottom: 200px; }
+/* A field focused behind the job form's sticky bar still scrolls clear of it: the fixed TabBar, plus the
+   bar itself. */
+html:has(.stickybar) { scroll-padding-bottom: calc(var(--tabbar-h) + 136px); }
 
 .maplibregl-ctrl-attrib { font-size: 10px; }
+
+/*
+ * Archivo ships latin, latin-ext and vietnamese only, so a Nepali, Chinese or Mongolian screen falls
+ * through to whatever the phone happens to have — at a different x-height and line box, which is how a
+ * 16px cell label wraps in one language and not another. Name the fallback per language instead of
+ * letting each phone guess. Archivo still leads for zh and mn: it carries their digits and any Latin
+ * words, and the system face picks up the characters Archivo has no glyph for.
+ */
+html[lang="ne"] body { font-family: 'Noto Sans Devanagari', 'Archivo', system-ui, sans-serif; }
+html[lang="zh"] body { font-family: 'Archivo', 'PingFang SC', 'Noto Sans SC', system-ui, sans-serif; }
+html[lang="mn"] body { font-family: 'Archivo', 'Noto Sans', system-ui, sans-serif; }

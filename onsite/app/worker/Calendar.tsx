@@ -89,7 +89,7 @@ export function Calendar({ availability, shifts, bookings, usualDays, patternLiv
           <div className="text-lg font-extrabold">{new Date(month + "-01T00:00:00Z").toLocaleDateString(locale, { month: "long", year: "numeric", timeZone: "UTC" })}</div>
           <button className="btn-ghost btn-sm" aria-label={t("Month after")} onClick={() => moveMonth(1)}><ChevronRight size={22} strokeWidth={2.5} aria-hidden /></button>
         </div>
-        <div className="grid grid-cols-7 text-center text-xs text-steel font-bold mb-1">{SHORT.slice(1).map((d) => <div key={d}>{t(d)}</div>)}</div>
+        <div className="grid grid-cols-7 text-center text-sm text-steel font-bold mb-1">{SHORT.slice(1).map((d) => <div key={d}>{t(d)}</div>)}</div>
         <div className="grid grid-cols-7 gap-1">
           {days.map((d, i) => {
             if (!d) return <div key={i} />;
@@ -101,10 +101,20 @@ export function Calendar({ availability, shifts, bookings, usualDays, patternLiv
             const cls = st === "working" ? "bg-ink text-white" : st === "free" ? "bg-go text-white"
               : st === "usual" ? "bg-go/20 text-ink" : "bg-site text-steel";
             return (
-              <button key={d} onClick={() => { setSel(d); if (!b) set(d, nextDayState(factsFor(d))); }} disabled={past || pending}
-                className={`relative aspect-square rounded-xl text-base font-bold ${cls} ${past ? "opacity-30" : ""} ${sel === d ? "ring-[3px] ring-ink ring-offset-1" : ""}`}>
+              // A tap selects the day and does nothing else.
+              //
+              // It used to also cycle the day's answer — one tap was setSel(d) AND set(d, nextDayState(...)) —
+              // on a cell that works out to about 45px on a 375px phone. So a gloved mis-tap aimed at Thursday
+              // silently changed whether every boss within radius could offer that worker Wednesday, with
+              // nothing on screen to say it had happened and no way back but noticing. The answer is set below,
+              // on a 48px control that is labelled with what each choice means; a day grid does not need to be
+              // a second, quieter copy of it.
+              <button key={d} onClick={() => setSel(d)} disabled={past || pending}
+                aria-pressed={sel === d}
+                className={`relative min-h-[48px] flex items-center justify-center rounded-xl text-base font-bold ${cls} ${past ? "opacity-30" : ""} ${sel === d ? "ring-[3px] ring-ink ring-offset-1" : ""}`}>
                 {Number(d.slice(8))}
-                {b && <span className="absolute bottom-0.5 inset-x-0 text-[10px] font-normal leading-none">{fmtTime(b.start_time).replace(":00", "")}</span>}
+                {/* The start time used to sit in here at 10px, which is unreadable in sun and below the floor
+                    the rest of the app keeps. Ink already says "working"; the panel below says when. */}
                 {!b && n > 0 && <span className={`absolute top-1 right-1 w-2.5 h-2.5 rounded-full border border-white ${hot ? "bg-hv" : "bg-steel"}`} />}
               </button>
             );

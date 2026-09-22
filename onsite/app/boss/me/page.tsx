@@ -5,14 +5,14 @@ import { Heatmap } from "@/components/Heatmap";
 import { RecordTiles } from "@/components/RecordTiles";
 import { Facts } from "@/components/Facts";
 import { money } from "@/lib/award";
-import { matchFeeCents, money as cents, statusWords } from "@/lib/subscription";
-import { matchesThisPeriod } from "@/lib/invoicing";
+import { matchFeeCents, moneyCents } from "@/lib/subscription";
+import { matchesThisFortnight } from "@/lib/invoicing";
 import { bossRecord, fillWords, share, SMALL_N, WINDOW_DAYS } from "@/lib/profileStats";
 export const dynamic = "force-dynamic";
 
 export default async function BossMe() {
   const u = await requireRole("boss");
-  const [r, matches] = await Promise.all([bossRecord(u.id), matchesThisPeriod(u.id)]);
+  const [r, matches] = await Promise.all([bossRecord(u.id), matchesThisFortnight(u.id)]);
   const p = r.pulse;
 
   // Under five approvals there is nothing to average, so the line says "new" instead of a number nobody can trust.
@@ -59,10 +59,14 @@ export default async function BossMe() {
           foot="Workers see this too. Ring them before approving fewer hours than they recorded." />
 
         <Facts title="OnSite" facts={[
-          { label: "Introductions this month", value: `${matches} · ${cents(matchFeeCents() * matches)}`, sub: "A worker OnSite found you, first time their hours were approved." },
+          { label: "Introductions this fortnight", value: `${matches} · ${moneyCents(matchFeeCents() * matches)}`, sub: "A worker OnSite found you, first time their hours were approved." },
         ]} />
-        {/* Billing lives on its own screen; this says where the boss stands without opening it. */}
-        <Row href="/boss/billing" title="Billing" sub={statusWords({ status: r.status, trial_ends_at: r.trial_ends_at, period_ends_at: r.period_ends_at }).title} />
+        {/* Money first: what the boss owes his workers and what he owes OnSite, on the same fortnight.
+            Billing is the invoices on their own, for when that is all he wants. There is no status to put
+            on either row any more — nothing lapses and nothing is switched off — so each says what is
+            behind it rather than what the boss "is". */}
+        <Row href="/boss/money" title="Money" sub="This fortnight: who you still owe, and your open invoices." />
+        <Row href="/boss/billing" title="Billing" sub="Your invoices, and what this fortnight is running at." />
         <Row href="/boss/me/settings" title="Settings" sub="Company details, alerts, sign-in, sign out." />
       </Page>
     </>

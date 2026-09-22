@@ -1,8 +1,11 @@
 import fs from "node:fs";
+import { siteToday } from "@/lib/siteClock";
 import path from "node:path";
 import { sql } from "@/lib/db";
 import { mdToHtml } from "@/lib/md";
 import { whitecardConfigured } from "@/lib/whitecard";
+import { pushConfigured } from "@/lib/alerts";
+import { qpayConfigured } from "@/lib/qpay";
 import { demoConsoleOn, devShowOtpOn } from "@/lib/flags";
 import { smsProvider } from "@/lib/sms";
 import { Console } from "./Console";
@@ -25,7 +28,7 @@ export default async function ControlRoom() {
           (SELECT COUNT(*) FROM users WHERE role = 'boss')::int AS bosses,
           (SELECT COUNT(*) FROM users WHERE role = 'worker')::int AS workers,
           (SELECT COUNT(*) FROM projects WHERE NOT archived)::int AS sites,
-          (SELECT COUNT(*) FROM shifts WHERE status = 'open' AND day >= CURRENT_DATE)::int AS open_shifts,
+          (SELECT COUNT(*) FROM shifts WHERE status = 'open' AND day >= ${siteToday()})::int AS open_shifts,
           (SELECT COUNT(*) FROM bookings WHERE status IN ('accepted','clocked_in'))::int AS live_bookings,
           (SELECT COUNT(*) FROM bookings WHERE status = 'clocked_out')::int AS to_approve,
           (SELECT COUNT(*) FROM bookings WHERE status = 'approved')::int AS owed,
@@ -43,8 +46,8 @@ export default async function ControlRoom() {
     db: !!process.env.DATABASE_URL,
     sms: smsProvider().provider,
     nsw: whitecardConfigured(),
-    push: !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY && process.env.VAPID_SUBJECT),
-    qpay: !!(process.env.QPAY_USERNAME && process.env.QPAY_PASSWORD && process.env.QPAY_INVOICE_CODE),
+    push: pushConfigured(),
+    qpay: qpayConfigured(),
     cron: !!process.env.CRON_SECRET,
     devOtp: devShowOtpOn(),
     node: process.env.NODE_ENV ?? "development",

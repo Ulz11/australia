@@ -8,7 +8,14 @@ export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
   appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "OnSite" },
 };
-export const viewport: Viewport = { themeColor: "#15171A", width: "device-width", initialScale: 1, maximumScale: 1, viewportFit: "cover" };
+/*
+ * No `maximumScale`. Pinch-zoom stays on, deliberately: the people using this are 45-60 with reading glasses
+ * they left in the ute, squinting at a due date in direct sun. Locking the scale takes away the one fix they
+ * have. The reason it was ever locked — iOS auto-zooming a focused field — is already handled the honest way:
+ * body is 17px and `.input` is 56px with `text-lg`, both over the 16px threshold that triggers the zoom.
+ * Raising the scale lock back would re-break the first and fix nothing about the second.
+ */
+export const viewport: Viewport = { themeColor: "#15171A", width: "device-width", initialScale: 1, viewportFit: "cover" };
 
 /** `lang` follows whoever is reading: a worker's language, and always English on a boss screen. */
 export default async function RootLayout({ children }: { children: React.ReactNode }) {

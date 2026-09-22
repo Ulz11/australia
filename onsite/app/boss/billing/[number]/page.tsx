@@ -11,7 +11,7 @@ import { QpayWatch } from "./QpayWatch";
 import { bossBilling, invoiceWithLines, type InvoiceRow } from "@/lib/invoicing";
 import { invoicePayState, type InvoicePayState } from "@/lib/invoiceQpay";
 import {
-  FX_AT_TAP, QPAY_HOW_TO, QPAY_NOT_SET_UP, audMoney, billingBusiness, fmtInvoiceDay, gstRegistered, isInvoiceNumber, isOverdue, mntWords, money,
+  FX_AT_TAP, QPAY_HOW_TO, QPAY_NOT_SET_UP, audMoney, billingBusiness, fmtInvoiceDay, gstRegistered, isInvoiceNumber, isOverdue, mntWords, moneyCents,
 } from "@/lib/subscription";
 export const dynamic = "force-dynamic";
 
@@ -72,12 +72,12 @@ export default async function Invoice({ params }: { params: Promise<{ number: st
           {lines.map((l) => (
             <div key={l.id} className="py-2 flex justify-between gap-3">
               <span className="min-w-0">{l.description}{l.qty > 1 ? ` × ${l.qty}` : ""}</span>
-              <span className="shrink-0">{money(l.amount_cents)}</span>
+              <span className="shrink-0">{moneyCents(l.amount_cents)}</span>
             </div>
           ))}
-          <div className="py-2 flex justify-between gap-3"><span>Subtotal</span><span>{money(invoice.subtotal_cents)}</span></div>
-          {gst && <div className="py-2 flex justify-between gap-3"><span>GST</span><span>{money(invoice.gst_cents)}</span></div>}
-          <div className="py-2 flex justify-between text-xl font-extrabold"><span>Total</span><span>{money(invoice.total_cents)}</span></div>
+          <div className="py-2 flex justify-between gap-3"><span>Subtotal</span><span>{moneyCents(invoice.subtotal_cents)}</span></div>
+          {gst && <div className="py-2 flex justify-between gap-3"><span>GST</span><span>{moneyCents(invoice.gst_cents)}</span></div>}
+          <div className="py-2 flex justify-between text-xl font-extrabold"><span>Total</span><span>{moneyCents(invoice.total_cents)}</span></div>
           {gst && <div className="text-sm text-steel pt-1">Total includes GST.</div>}
         </div>
 

@@ -6,7 +6,7 @@
  * 95xx recheck, 96xx licences, 97xx–98xx otp, 99xx alerts/bugs), on sites at Mount Isa so no seeded worker
  * and no other file's worker is ever in range. Self-cleaning.
  *
- * The cron's billing run walks every boss, so it must not touch anyone else's: a boss whose trial end was
+ * The cron's billing run walks every boss, so it must not touch anyone else's: a boss whose period end was
  * never set — which is every boss another test file inserts straight into the table — is not due, and the
  * seeded ones are three days off. Only the bosses this file deliberately makes due are picked up.
  */
@@ -16,16 +16,16 @@ import * as worker from "@/actions/worker";
 import * as auth from "@/actions/auth";
 import { sql } from "@/lib/db";
 import {
-  bossBilling, cancelSubscription, closeBillingPeriods, closePeriod, invoiceWithLines, listInvoices,
-  markInvoicePaid, payToolsAllowed, startSubscription, unbilledIntroduction,
+  bossBilling, closeBillingPeriods, closePeriod, invoiceWithLines, listInvoices,
+  markInvoicePaid, unbilledIntroduction,
 } from "@/lib/invoicing";
-import { addMonths, trialDays } from "@/lib/subscription";
+import { FORTNIGHT_DAYS, addDays } from "@/lib/subscription";
 import { GET as exportCsv } from "@/app/boss/pay/export/route";
 import Pay from "@/app/boss/pay/page";
 
 const PHONES = {
-  boss: "+61400008801", onboard: "+61400008802", trial: "+61400008803", period: "+61400008804",
-  cancel: "+61400008805", lapsed: "+61400008806", gst: "+61400008807", numbers: "+61400008808",
+  boss: "+61400008801", onboard: "+61400008802", first: "+61400008803", period: "+61400008804",
+  quiet: "+61400008805", open: "+61400008806", gst: "+61400008807", numbers: "+61400008808",
   w1: "+61400008811", w2: "+61400008812", w3: "+61400008813", w4: "+61400008814",
   w5: "+61400008815", w6: "+61400008816", w7: "+61400008817", w8: "+61400008818",
 };
@@ -101,24 +101,23 @@ describe.skipIf(!process.env.DATABASE_URL)("billing: introductions, match fees a
   const introCount = async (bossId: string, workerId: string) =>
     (await sql<{ n: number }[]>`SELECT COUNT(*)::int AS n FROM introductions WHERE boss_id = ${bossId} AND worker_id = ${workerId}`)[0].n;
 
-  /** Put a boss straight into the billing state a test needs, so nothing has to wait a month. */
-  const setBilling = (bossId: string, p: { status: string; trialEnds?: Date | null; start?: Date | null; end?: Date | null }) =>
-    sql`UPDATE bosses SET subscription_status = ${p.status},
-          trial_ends_at = ${p.trialEnds === undefined ? sql`trial_ends_at` : p.trialEnds},
-          period_started_at = ${p.start === undefined ? sql`period_started_at` : p.start},
-          period_ends_at = ${p.end === undefined ? sql`period_ends_at` : p.end},
-          subscription_cancelled_at = NULL
-        WHERE user_id = ${bossId}`;
+  /** Put a boss's fortnight where a test needs it, so nothing has to wait fourteen days. */
+  const setBilling = (bossId: string, p: { start: Date | null; end: Date | null }) =>
+    sql`UPDATE bosses SET period_started_at = ${p.start}, period_ends_at = ${p.end} WHERE user_id = ${bossId}`;
+
+  /** One introduction, already billable, at a moment of the test's choosing. */
+  const billed = (bossId: string, workerId: string, at: Date) =>
+    sql`INSERT INTO introductions (boss_id, worker_id, via, billed_at) VALUES (${bossId}, ${workerId}, 'match', ${at})`;
 
   beforeAll(async () => {
     await sql`DELETE FROM users WHERE phone = ANY(${EVERYONE})`;    // bosses, sites, shifts, bookings, introductions, invoices all cascade
     const person = async (phone: string, name: string, role: "boss" | "worker") =>
       (await sql<{ id: string }[]>`INSERT INTO users (phone, name, role) VALUES (${phone}, ${name}, ${role}) RETURNING id`)[0].id;
 
-    for (const key of ["boss", "trial", "period", "cancel", "lapsed", "gst", "numbers"] as const) {
+    for (const key of ["boss", "first", "period", "quiet", "open", "gst", "numbers"] as const) {
       ids[key] = await person(PHONES[key], `Billing ${key}`, "boss");
-      await sql`INSERT INTO bosses (user_id, company, abn, trial_ends_at, period_started_at, period_ends_at)
-                VALUES (${ids[key]}, ${`Billing ${key} Pty Ltd`}, '11222333444', now() + interval '3 days', now() + interval '3 days', now() + interval '33 days')`;
+      await sql`INSERT INTO bosses (user_id, company, abn, period_started_at, period_ends_at)
+                VALUES (${ids[key]}, ${`Billing ${key} Pty Ltd`}, '11222333444', now() - interval '11 days', now() + interval '3 days')`;
     }
     const [p] = await sql<{ id: string }[]>`INSERT INTO projects (boss_id, name, address, location)
       VALUES (${ids.boss}, 'Billing Site', 'Mount Isa QLD', ST_SetSRID(ST_MakePoint(${MOUNT_ISA.lng}, ${MOUNT_ISA.lat}),4326)::geography) RETURNING id`;
@@ -234,147 +233,130 @@ describe.skipIf(!process.env.DATABASE_URL)("billing: introductions, match fees a
     expect((await intro(ids.boss, ids.w7))!.billed_booking_id).toBe(direct.bookingId);
   });
 
-  // ───────────────────────────────────────────────────────────── the trial
+  // ──────────────────────────────────────────────────────── the fortnight a boss is on
 
-  it("puts a brand new boss on a three-day free trial", async () => {
+  it("opens a fortnight the moment an account becomes a boss — nothing to try, nothing to lapse", async () => {
     const [u] = await sql<{ id: string }[]>`INSERT INTO users (phone) VALUES (${PHONES.onboard}) RETURNING id`;
     as(u.id);
     await swallow(() => auth.completeOnboarding(fd({ role: "boss", name: "Onboard Boss", company: "Onboard Pty Ltd", privacy: "yes" })));
     const b = await bossBilling(u.id);
-    expect(b).toMatchObject({ subscription_status: "trialing" });
-    const days = (new Date(b!.trial_ends_at!).getTime() - Date.now()) / DAY;
-    expect(days).toBeGreaterThan(trialDays() - 0.1);
-    expect(days).toBeLessThan(trialDays() + 0.1);
-    expect(await payToolsAllowed(u.id)).toMatchObject({ allowed: true });   // the pay tools work from minute one
+    expect(b).toBeTruthy();
+
+    // The period starts now and runs exactly fourteen days. There is no trial end and no status, because
+    // there is nothing to try and nothing to be in: the first invoice only exists if somebody is introduced.
+    const start = new Date(b!.period_started_at!);
+    expect(Math.abs(start.getTime() - Date.now())).toBeLessThan(60_000);
+    expect(new Date(b!.period_ends_at!).getTime() - start.getTime()).toBe(FORTNIGHT_DAYS * DAY);
+    expect(await listInvoices(u.id)).toHaveLength(0);
   });
 
-  it("starts the subscription and sends the first invoice when the trial runs out", async () => {
-    const trialEnd = new Date(Date.now() - 2 * 60 * 60 * 1000);
-    await setBilling(ids.trial, { status: "trialing", trialEnds: trialEnd, start: null, end: null });
-    // one match, billed while the trial was still running
-    await sql`INSERT INTO introductions (boss_id, worker_id, via, billed_at) VALUES (${ids.trial}, ${ids.w8}, 'match', ${new Date(Date.now() - 3 * 60 * 60 * 1000)})`;
+  it("sends the first invoice when the fortnight ends, through the cron's own sweep", async () => {
+    const end = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    await setBilling(ids.first, { start: addDays(end, -FORTNIGHT_DAYS), end });
+    await billed(ids.first, ids.w8, new Date(Date.now() - 3 * 60 * 60 * 1000));
 
-    // Another test file may call the cron at the same moment (recheck.test.ts hits the route) and end this trial
-    // first; the sweep is idempotent, so assert the end state rather than which run got there.
+    // Another test file may call the cron at the same moment (recheck.test.ts hits the route) and close this
+    // fortnight first; the sweep is idempotent, so assert the end state rather than which run got there.
     await closeBillingPeriods();
 
-    const b = await bossBilling(ids.trial);
-    expect(b).toMatchObject({ subscription_status: "active" });
-    expect(new Date(b!.period_started_at!).toISOString()).toBe(trialEnd.toISOString());
-    expect(new Date(b!.period_ends_at!).toISOString()).toBe(addMonths(trialEnd, 1).toISOString());
+    const b = await bossBilling(ids.first);
+    expect(new Date(b!.period_started_at!).toISOString()).toBe(end.toISOString());
+    expect(new Date(b!.period_ends_at!).toISOString()).toBe(addDays(end, FORTNIGHT_DAYS).toISOString());
 
-    const [inv] = await listInvoices(ids.trial);
+    const [inv] = await listInvoices(ids.first);
     expect(inv).toBeTruthy();
     const { lines } = (await invoiceWithLines(inv.number))!;
-    expect(lines.map((l) => l.kind).sort()).toEqual(["match", "subscription"]);
-    expect(inv.total_cents).toBe(3300 + 200);                 // this month in advance + the trial's one match
-    expect((await intro(ids.trial, ids.w8))!.invoice_line_id).toBeTruthy();
+    expect(lines.map((l) => l.kind)).toEqual(["match"]);       // introductions are the only kind of line there is
+    expect(inv.total_cents).toBe(200);
+    expect((await intro(ids.first, ids.w8))!.invoice_line_id).toBeTruthy();
   });
 
-  // ───────────────────────────────────────────────────────────── closing a period
+  // ───────────────────────────────────────────────────────────── closing a fortnight
 
-  it("bills exactly the period's own matches, plus next month in advance", async () => {
-    const start = new Date(Date.now() - 31 * DAY), end = new Date(Date.now() - 60 * 1000);
-    await setBilling(ids.period, { status: "active", start, end });
-    // two inside the period, one after it — the third belongs to the period that has just begun
-    await sql`INSERT INTO introductions (boss_id, worker_id, via, billed_at) VALUES
-      (${ids.period}, ${ids.w1}, 'match', ${new Date(Date.now() - 20 * DAY)}),
-      (${ids.period}, ${ids.w2}, 'offer', ${new Date(Date.now() - 2 * DAY)}),
-      (${ids.period}, ${ids.w3}, 'match', ${new Date(Date.now() + 60 * 1000)})`;
+  it("bills exactly the fortnight's own introductions, and moves on by another fourteen days", async () => {
+    const end = new Date(Date.now() - 60 * 1000), start = addDays(end, -FORTNIGHT_DAYS);
+    await setBilling(ids.period, { start, end });
+    // Two inside the fortnight, one after it — the third belongs to the fortnight that has just begun.
+    // The straggler is a second PAST `end`, not a minute in the future: it has to be outside this fortnight
+    // and already behind us, or the next test's cut-off would have to wait for the clock to catch up to it.
+    await billed(ids.period, ids.w1, new Date(Date.now() - 10 * DAY));
+    await billed(ids.period, ids.w2, new Date(Date.now() - 2 * DAY));
+    await billed(ids.period, ids.w3, new Date(end.getTime() + 1000));
 
     const r = await closePeriod(ids.period);
-    expect(r.invoiced).toBeTruthy();
+    expect(r).toMatchObject({ closed: true });
     const { lines } = (await invoiceWithLines(r.invoiced!.number))!;
-    expect(lines.filter((l) => l.kind === "match").map((l) => l.worker_id).sort()).toEqual([ids.w1, ids.w2].sort());
-    expect(lines.filter((l) => l.kind === "subscription")).toHaveLength(1);
-    expect(r.invoiced!.total_cents).toBe(3300 + 2 * 200);
+    expect(lines.map((l) => l.worker_id).sort()).toEqual([ids.w1, ids.w2].sort());
+    expect(lines.every((l) => l.kind === "match")).toBe(true);
+    expect(r.invoiced!.total_cents).toBe(2 * 200);
     expect((await intro(ids.period, ids.w3))!.invoice_line_id).toBeNull();   // waits for the next invoice
 
-    // the period moved on by exactly a month, from where the last one ended
     const b = await bossBilling(ids.period);
     expect(new Date(b!.period_started_at!).toISOString()).toBe(end.toISOString());
-    expect(new Date(b!.period_ends_at!).toISOString()).toBe(addMonths(end, 1).toISOString());
+    expect(new Date(b!.period_ends_at!).toISOString()).toBe(addDays(end, FORTNIGHT_DAYS).toISOString());
   });
 
-  it("does nothing at all when the same period is closed again", async () => {
+  it("does nothing at all when the same fortnight is closed again", async () => {
     const before = await listInvoices(ids.period);
     expect(await closePeriod(ids.period)).toMatchObject({ closed: false, invoiced: null });
     expect(await listInvoices(ids.period)).toHaveLength(before.length);
   });
 
-  it("makes no invoice for nothing: a last period with no matches and no next month", async () => {
-    const start = new Date(Date.now() - 31 * DAY), end = new Date(Date.now() - 60 * 1000);
-    await setBilling(ids.cancel, { status: "active", start, end });
-    expect(await cancelSubscription(ids.cancel)).toBe(true);
-    expect((await bossBilling(ids.cancel))!.subscription_status).toBe("cancelling");
+  it("picks the straggler up on the next invoice, once its own fortnight is over", async () => {
+    // End this one a second ago: past, so closePeriod will act on it, and later than the straggler's
+    // billed_at, so `matchLines` picks it up. `matchLines` has no lower bound — that is what stops an
+    // introduction that missed its own invoice being forgotten rather than merely being late.
+    const b = await bossBilling(ids.period);
+    await setBilling(ids.period, { start: new Date(b!.period_started_at!), end: new Date(Date.now() - 1000) });
 
-    const r = await closePeriod(ids.cancel);
-    expect(r).toMatchObject({ lapsed: true, invoiced: null });               // nothing to charge for, so no record of one
-    expect(await listInvoices(ids.cancel)).toHaveLength(0);
-    expect((await bossBilling(ids.cancel))!.subscription_status).toBe("lapsed");
-  });
-
-  it("charges a cancelling boss for the matches they made, but never for the month ahead", async () => {
-    const start = new Date(Date.now() - 31 * DAY), end = new Date(Date.now() - 60 * 1000);
-    await setBilling(ids.lapsed, { status: "active", start, end });
-    await sql`INSERT INTO introductions (boss_id, worker_id, via, billed_at) VALUES (${ids.lapsed}, ${ids.w4}, 'match', ${new Date(Date.now() - 5 * DAY)})`;
-    await cancelSubscription(ids.lapsed);
-
-    const r = await closePeriod(ids.lapsed);
-    expect(r.lapsed).toBe(true);
+    const r = await closePeriod(ids.period);
+    expect(r.closed).toBe(true);
     const { lines } = (await invoiceWithLines(r.invoiced!.number))!;
-    expect(lines.map((l) => l.kind)).toEqual(["match"]);                     // no subscription line
-    expect(r.invoiced!.total_cents).toBe(200);
+    expect(lines.map((l) => l.worker_id)).toEqual([ids.w3]);   // the one that missed the last invoice, billed once
+    expect((await intro(ids.period, ids.w3))!.invoice_line_id).toBeTruthy();
   });
 
-  it("invoices at once when a lapsed boss starts again, from a period beginning now", async () => {
-    expect((await bossBilling(ids.lapsed))!.subscription_status).toBe("lapsed");
-    const before = (await listInvoices(ids.lapsed)).length;
-    const r = await startSubscription(ids.lapsed);
-    expect(r.invoiced).toBeTruthy();
-    expect((await invoiceWithLines(r.invoiced!.number))!.lines.map((l) => l.kind)).toEqual(["subscription"]);
-    expect(await listInvoices(ids.lapsed)).toHaveLength(before + 1);
+  it("writes no invoice at all for a quiet fortnight, but still moves the fortnight on", async () => {
+    const end = new Date(Date.now() - 60 * 1000);
+    await setBilling(ids.quiet, { start: addDays(end, -FORTNIGHT_DAYS), end });
 
-    const b = await bossBilling(ids.lapsed);
-    expect(b!.subscription_status).toBe("active");
-    expect(new Date(b!.period_ends_at!).getTime() - new Date(b!.period_started_at!).getTime()).toBeGreaterThan(27 * DAY);
-    // and starting again on top of a running subscription changes nothing
-    expect(await startSubscription(ids.lapsed)).toMatchObject({ closed: false, invoiced: null });
+    // `closed` and `invoiced` are separate for exactly this case: a boss who was introduced to nobody owes
+    // nothing, and an empty invoice is not a record of anything. A caller reading "no invoice" as "nothing
+    // happened" would close this same fortnight again on the next run.
+    const r = await closePeriod(ids.quiet);
+    expect(r).toMatchObject({ closed: true, invoiced: null });
+    expect(await listInvoices(ids.quiet)).toHaveLength(0);
+    expect(new Date((await bossBilling(ids.quiet))!.period_ends_at!).toISOString())
+      .toBe(addDays(end, FORTNIGHT_DAYS).toISOString());
   });
 
-  // ───────────────────────────────────────────────────────────── what the subscription gates
+  // ─────────────────────────────────────────────── what the price gates: nothing
 
-  it("holds the pay run and the export behind the subscription, and nothing else", async () => {
+  it("opens the pay run and the export to every boss, whatever they owe", async () => {
     const payScreen = async (bossId: string) => { as(bossId); return partsOf(await Pay({ searchParams: Promise.resolve({}) })); };
     const csv = async (bossId: string) => { as(bossId); return exportCsv(new Request("http://onsite.invalid/boss/pay/export")); };
 
-    for (const key of ["trial", "lapsed"] as const) expect((await bossBilling(ids[key]))!.subscription_status).toBe("active");
-    expect(await payScreen(ids.trial)).not.toContain("Upsell");
-    expect((await csv(ids.trial)).status).toBe(200);
+    // Nothing switches off, ever — so there is no upsell to render and no gate to bounce off. Not for a boss
+    // whose fortnight has just closed, and not for one with an invoice still sitting open and overdue.
+    for (const key of ["first", "open", "quiet"] as const) {
+      expect(await payScreen(ids[key])).not.toContain("Upsell");
+      expect((await csv(ids[key])).status).toBe(200);
+    }
 
-    await setBilling(ids.gst, { status: "lapsed", trialEnds: new Date(Date.now() - 40 * DAY) });
-    expect(await payScreen(ids.gst)).toContain("Upsell");
-    const blocked = await csv(ids.gst);
-    expect(blocked.status).toBe(307);
-    expect(blocked.headers.get("location")).toMatch(/\/boss\/pay$/);
-
-    // a boss still on the free trial has the lot
-    await setBilling(ids.gst, { status: "trialing", trialEnds: new Date(Date.now() + 2 * DAY) });
-    expect(await payScreen(ids.gst)).not.toContain("Upsell");
-    expect((await csv(ids.gst)).status).toBe(200);
-
-    // and so does one who is on the way out but still inside the period they paid for
-    await setBilling(ids.gst, { status: "cancelling", start: new Date(Date.now() - DAY), end: new Date(Date.now() + 10 * DAY) });
-    expect(await payScreen(ids.gst)).not.toContain("Upsell");
-    expect((await csv(ids.gst)).status).toBe(200);
+    await sql`UPDATE invoices SET due_at = now() - interval '40 days' WHERE boss_id = ${ids.first} AND status = 'open'`;
+    expect(await payScreen(ids.first)).not.toContain("Upsell");
+    expect((await csv(ids.first)).status).toBe(200);
   });
 
   // ───────────────────────────────────────────────────────────── the invoices themselves
 
   it("numbers invoices uniquely, counting up within the year", async () => {
     const numbers: string[] = [];
-    for (let i = 0; i < 3; i++) {
-      await setBilling(ids.numbers, { status: "active", start: new Date(Date.now() - (40 + i) * DAY), end: new Date(Date.now() - (9 + i) * DAY) });
+    // One introduction per fortnight, because an invoice only exists where there is something to charge for.
+    for (const [i, w] of (["w1", "w2", "w3"] as const).entries()) {
+      const end = new Date(Date.now() - (9 + i) * DAY);
+      await setBilling(ids.numbers, { start: addDays(end, -FORTNIGHT_DAYS), end });
+      await billed(ids.numbers, ids[w], addDays(end, -1));
       const r = await closePeriod(ids.numbers);
       if (r.invoiced) numbers.push(r.invoiced.number);
     }
@@ -388,27 +370,30 @@ describe.skipIf(!process.env.DATABASE_URL)("billing: introductions, match fees a
   });
 
   it("shows GST inside the total only when OnSite is registered for it", async () => {
-    const closeOne = async () => {
-      await setBilling(ids.gst, { status: "active", start: new Date(Date.now() - 31 * DAY), end: new Date(Date.now() - 60 * 1000) });
+    /** A fortnight with two introductions in it: $4.00 all up, whichever way GST falls. */
+    const closeOne = async (pair: readonly ["w4" | "w6", "w5" | "w7"]) => {
+      const end = new Date(Date.now() - 60 * 1000);
+      await setBilling(ids.gst, { start: addDays(end, -FORTNIGHT_DAYS), end });
+      for (const w of pair) await billed(ids.gst, ids[w], addDays(end, -1));
       return (await closePeriod(ids.gst)).invoiced!;
     };
 
     vi.stubEnv("GST_REGISTERED", "1");
-    const withGst = await closeOne();
-    expect(withGst.total_cents).toBe(3300);
-    expect(withGst.gst_cents).toBe(300);                                     // one eleventh, already inside the $33
+    const withGst = await closeOne(["w4", "w5"]);
+    expect(withGst.total_cents).toBe(400);
+    expect(withGst.gst_cents).toBe(36);                                      // one eleventh of $4.00, already inside it
     expect(withGst.subtotal_cents + withGst.gst_cents).toBe(withGst.total_cents);
 
     vi.stubEnv("GST_REGISTERED", "");
-    const without = await closeOne();
-    expect(without.total_cents).toBe(3300);                                  // the boss pays the same either way
+    const without = await closeOne(["w6", "w7"]);
+    expect(without.total_cents).toBe(400);                                   // the boss pays the same either way
     expect(without.gst_cents).toBe(0);
-    expect(without.subtotal_cents).toBe(3300);
+    expect(without.subtotal_cents).toBe(400);
     vi.unstubAllEnvs();
   });
 
   it("marks an invoice paid by hand, and says so plainly about one it doesn't know", async () => {
-    const [inv] = await listInvoices(ids.trial);
+    const [inv] = await listInvoices(ids.first);
     expect(inv.status).toBe("open");
 
     const paid = await markInvoicePaid(inv.number, "Transfer, cleared today");

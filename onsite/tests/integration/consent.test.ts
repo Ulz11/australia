@@ -63,6 +63,15 @@ describe.skipIf(!process.env.DATABASE_URL)("privacy consent at onboarding", () =
     expect(await me(2)).toMatchObject({ role: "boss", privacy_version: PRIVACY_VERSION, privacy_accepted_at: expect.any(Date), terms_version: TERMS_VERSION, terms_accepted_at: expect.any(Date) });
   });
 
+  it("a boss's ABN is checked before anything is written: a wrong one goes back to the form, a right one is kept as digits", async () => {
+    vi.stubEnv("TEST_USER_ID", ids[2]);
+    expect(await onboard(fd({ role: "boss", name: "Consent Boss", company: "Consent Fixture Co", abn: "12345678901", privacy: "yes" }))).toBe("/onboarding?err=abn");
+    expect(await me(2)).toMatchObject({ role: null, name: null });                       // nothing half-made
+    expect((await sql`SELECT 1 FROM bosses WHERE user_id = ${ids[2]}`).length).toBe(0);
+    expect(await onboard(fd({ role: "boss", name: "Consent Boss", company: "Consent Fixture Co", abn: "51 824 753 556", privacy: "yes" }))).toBe("/boss");
+    expect((await sql`SELECT abn FROM bosses WHERE user_id = ${ids[2]}`)[0].abn).toBe("51824753556");
+  });
+
   it("seeded demo accounts count as having agreed, so the local demo keeps working", async () => {
     const demo = await sql`SELECT phone, privacy_accepted_at, privacy_version, terms_accepted_at, terms_version FROM users WHERE phone LIKE '+61400000___'`;
     expect(demo.length, "seed the database first: npm run db:seed").toBeGreaterThan(0);

@@ -14,7 +14,7 @@ const walk = (d: string): string[] => fs.readdirSync(d, { withFileTypes: true })
 describe("boss view of a worker — source guard", () => {
   it("no boss screen or boss action reads visa type, licence rows, or workers.* directly", () => {
     const offenders = [...walk("app/boss"), ...walk("actions")]
-      .filter((f) => !f.endsWith("actions/worker.ts"))                          // the worker editing their own profile
+      .filter((f) => path.normalize(f) !== path.normalize("actions/worker.ts"))  // the worker editing their own profile (walk() joins with the OS separator)
       .filter((f) => /visa_type|\b(FROM|JOIN)\s+licences\b|\bw\.\*|SELECT\s+\*\s+FROM\s+workers\b/i.test(fs.readFileSync(f, "utf8")));
     expect(offenders).toEqual([]);
   });

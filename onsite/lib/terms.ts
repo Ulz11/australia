@@ -8,4 +8,4 @@
  *
  * Existing accounts are deliberately not asked again: nothing re-consents anyone today.
  */
-export const TERMS_VERSION = "2026-09-18.2";   // ".2": a boss can bring their own crew, and a worker can leave one
+export const TERMS_VERSION = "2026-09-22";     // the subscription is gone: $2 an introduction, invoiced every 14 days

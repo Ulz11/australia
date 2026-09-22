@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { siteToday } from "@/lib/siteClock";
 import { requireRole } from "@/lib/session";
 import { sql } from "@/lib/db";
 import { TabBar, type Tab } from "@/components/TabBar";
@@ -19,7 +20,9 @@ const tabs = (t: T, matches = 0, live = 0): Tab[] => [
 async function Tabs({ userId, t }: { userId: string; t: T }) {
   const [n] = await sql`SELECT
     (SELECT COUNT(*) FROM notifications WHERE user_id = ${userId} AND read_at IS NULL AND kind = 'shift_match')::int AS matches,
-    (SELECT COUNT(*) FROM bookings b JOIN shifts s ON s.id = b.shift_id WHERE b.worker_id = ${userId} AND b.status IN ('accepted','clocked_in') AND s.day >= CURRENT_DATE)::int AS live`;
+    (SELECT COUNT(*) FROM bookings b JOIN shifts s ON s.id = b.shift_id JOIN projects p ON p.id = s.project_id
+       WHERE b.worker_id = ${userId} AND b.status IN ('accepted','clocked_in')
+         AND s.day >= ${siteToday(sql`p.tz`)})::int AS live`;
   return <TabBar tabs={tabs(t, n.matches, n.live)} />;
 }
 

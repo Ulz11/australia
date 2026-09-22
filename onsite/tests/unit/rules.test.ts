@@ -37,13 +37,13 @@ describe("batchSize — how many phones one shift wakes up", () => {
 import { clockInLooks } from "@/lib/rules";
 describe("clockInLooks — clear, not strict", () => {
   const shift = { day: "2026-09-05", start_time: "06:30" };
-  it("is 'good' within 300 m and 15 min of start", () => {
+  it("is 'good' within 300 m and the 10-minute grace", () => {
     expect(clockInLooks(shift, { dist_m: 120, at: "2026-09-05T06:40:00+10:00" })).toBe("good");
   });
   it("is 'far' when more than 300 m away", () => {
     expect(clockInLooks(shift, { dist_m: 900, at: "2026-09-05T06:30:00+10:00" })).toBe("far");
   });
-  it("is 'late' when more than 15 min after start", () => {
+  it("is 'late' past the grace — the one grace, ON_TIME_GRACE_MIN (tests/unit/onTimeGrace.test.ts)", () => {
     expect(clockInLooks(shift, { dist_m: 50, at: "2026-09-05T06:50:00+10:00" })).toBe("late");
   });
   it("is 'unknown' with no GPS fix", () => {

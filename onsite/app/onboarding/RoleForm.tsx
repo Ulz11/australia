@@ -5,7 +5,12 @@ import { AddressPin } from "@/components/AddressPin";
 import { Field } from "@/components/ui";
 import { useT } from "@/components/Lang";
 
-export function RoleForm({ invite, defaultRole, defaultName, error }: { invite?: string; defaultRole?: "boss" | "worker"; defaultName?: string; error?: string }) {
+/** What a boss pays, handed down by the server page: the one price, as the billing code has it now. */
+export type Pricing = { fee: string };
+
+export function RoleForm({ invite, defaultRole, defaultName, pricing, error }: {
+  invite?: string; defaultRole?: "boss" | "worker"; defaultName?: string; pricing: Pricing; error?: string;
+}) {
   const [role, setRole] = useState<"boss" | "worker">(defaultRole ?? "worker");
   const t = useT();
   return (
@@ -24,8 +29,8 @@ export function RoleForm({ invite, defaultRole, defaultName, error }: { invite?:
         {/* What being a boss costs, said before the account is made — not found later on an invoice. */}
         {role === "boss" && (
           <p className="text-steel mt-2">
-            Free for 3 days, then $33 a month for the pay tools — cancel any time. $2 each time OnSite
-            finds you a new worker, charged when you approve their first shift.
+            {pricing.fee} each time OnSite introduces you to a worker whose hours you approve. Invoiced every
+            fortnight. Nothing else — no monthly fee, and nothing to cancel.
           </p>
         )}
       </Field>
@@ -34,8 +39,10 @@ export function RoleForm({ invite, defaultRole, defaultName, error }: { invite?:
       </Field>
       {role === "boss" ? (
         <>
-          <Field label="Your company"><input name="company" className="input" placeholder="e.g. Marrickville Formwork" /></Field>
-          <Field label="ABN (optional)"><input name="abn" className="input" inputMode="numeric" placeholder="11 digits" /></Field>
+          <Field label="Your company"><input name="company" className="input" maxLength={80} placeholder="e.g. Marrickville Formwork" /></Field>
+          <Field label="ABN (optional)" hint="Eleven digits. We check it before we keep it, and keep the digits only.">
+            <input name="abn" className="input num" inputMode="numeric" maxLength={20} placeholder="11 digits" />
+          </Field>
         </>
       ) : (
         <>

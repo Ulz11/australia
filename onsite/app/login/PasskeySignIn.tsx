@@ -136,8 +136,11 @@ export function PasskeySignIn({ origin, rpID, invite, autofill, onAutofill }: {
       <div className="flex items-center gap-3 text-steel" aria-hidden><span className="h-px flex-1 bg-line" />{t("or")}<span className="h-px flex-1 bg-line" /></div>
       <button type="button" onClick={tap} disabled={prompting || pending || leaving} className="btn-ghost px-4">
         <ScanFace size={26} strokeWidth={2.25} aria-hidden className="shrink-0" />
-        {/* Two even lines on a narrow phone rather than one word hanging on its own. */}
-        <span className="text-balance">{pending || leaving ? t("Signing you in…") : t("Sign in with Face\u00a0ID or fingerprint")}</span>
+        {/* Two even lines on a narrow phone rather than one word hanging on its own, and "Face ID" — a
+            name that stays English in all six dictionaries — never breaks across them. The hard space is
+            put in AFTER the lookup: with it inside the key, the key was one no dictionary had, so every
+            language fell back to the English sentence. */}
+        <span className="text-balance">{pending || leaving ? t("Signing you in…") : t("Sign in with Face ID or fingerprint").replace("Face ID", "Face\u00a0ID")}</span>
       </button>
       {msg && <p role="status" className={msg.warn ? "text-warn font-semibold" : "font-semibold"}>{msg.text}</p>}
     </div>
