@@ -58,18 +58,20 @@ describe("privacy notice contact", () => {
 });
 
 describe("the rules page prices", () => {
-  // Two helpers are called `money`: lib/award's counts dollars (an hourly rate), lib/subscription's counts
-  // cents (a price out of the billing code). /terms went live saying "$3,300.00 a month" for a $33 subscription
-  // because it had imported the dollars one for a cents figure.
+  // lib/award's money() counts dollars (an hourly rate), lib/subscription's moneyCents() counts cents (a price
+  // out of the billing code). /terms went live saying "$3,300.00 a month" for a $33 subscription because it had
+  // imported the dollars one for a cents figure; the names are no longer interchangeable (tests/unit/moneyHelpers.test.ts).
+  // The subscription that bug was about is gone, so the case is made against the fee that is left — the mistake
+  // it guards against is the helper, not the price, and a $2 fee printed as $200.00 is the same bug.
   it("a price in cents is only ever formatted by the helper that counts cents", async () => {
     const { money: moneyDollars } = await import("@/lib/award");
-    const { money: moneyCents, subscriptionCents } = await import("@/lib/subscription");
-    const cents = subscriptionCents({ SUBSCRIPTION_CENTS: "3300" });
+    const { moneyCents, matchFeeCents } = await import("@/lib/subscription");
+    const cents = matchFeeCents({ MATCH_FEE_CENTS: "3300" });
     expect(moneyCents(cents)).toBe("$33.00");
     expect(moneyDollars(cents)).toBe("$3,300.00");               // the same number, a hundred times the price
 
     const src = fs.readFileSync("app/terms/page.tsx", "utf8");
-    expect(src).not.toMatch(/\bmoney\(\s*(subscriptionCents|matchFeeCents)\b/);
+    expect(src).not.toMatch(/\bmoney\(\s*matchFeeCents\b/);
     expect(src).toMatch(/await connection\(\)/);                 // every figure read at request time, never baked in
     expect(src).not.toMatch(/[\w.+-]+@[\w-]+\.[\w.]+/);          // the contact comes from privacyContact(), same as /privacy
   });
@@ -91,10 +93,18 @@ describe("the rules page", () => {
   });
 
   it("reads every fee from the code that charges it, not from words typed into the page", () => {
-    for (const fn of ["matchFeeCents()", "subscriptionCents()", "trialDays()", "gstRegistered()", "demoSite()"])
+    // subscriptionCents() and trialDays() were on this list until the subscription was withdrawn. They are
+    // replaced rather than dropped: the rule is that a figure on this page comes from the constant the billing
+    // code charges from, and the page now promises three of them — the fee, the cycle and the payment terms.
+    for (const fn of ["matchFeeCents()", "paymentTermsDays()", "gstRegistered()", "demoSite()"])
       expect(src, fn).toContain(fn);
+    expect(src).toContain("FORTNIGHT_DAYS");
     expect(src).toContain("AWARD_CASUAL_FLOOR");
     expect(src).not.toMatch(/\$\d/);                              // no dollar figure typed in
+    // ...and the two figures that aren't dollars: "due 14 days" outlived the 14-day terms once already.
+    // Narrow on purpose — the "90 days" further down is how long an unclaimed crew number is kept, not a fee.
+    expect(src).not.toMatch(/\bdue\b[^.]{0,12}?\d+\s*days?/i);
+    expect(src).not.toMatch(/\bevery\s+\d+\s*days?/i);
     expect(TERMS_VERSION).toMatch(/^\d{4}-\d{2}-\d{2}(\.\d+)?$/);
   });
 

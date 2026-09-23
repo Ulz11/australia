@@ -24,7 +24,15 @@ export function batchSize(s: { spots: number; taken: number }): number {
 }
 
 export const NEAR_SITE_M = 300;
-export const ON_TIME_MIN = 15;
+/**
+ * Ten minutes at the gate, and this file is the only place that number lives.
+ *
+ * It used to be 15 here and 10 in lib/profileStats.ts, so a worker who clocked in twelve minutes late
+ * read "on time" on their own record and "late" on the boss's screen for the identical event — the kind
+ * of thing that ends in an argument nobody can settle. It lives here rather than in profileStats because
+ * lib/rules.ts is safe for a client component to import and profileStats pulls in the database.
+ */
+export const ON_TIME_GRACE_MIN = 10;
 export type ClockInLook = "good" | "far" | "late" | "unknown";
 
 /**
@@ -45,7 +53,7 @@ export function clockInLooks(
   const lh = Number(local.find((p) => p.type === "hour")!.value), lm = Number(local.find((p) => p.type === "minute")!.value);
   const day = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(at);
   const lateBy = (lh * 60 + lm) - (h * 60 + m);
-  if (day !== shift.day || lateBy > ON_TIME_MIN) return "late";
+  if (day !== shift.day || lateBy > ON_TIME_GRACE_MIN) return "late";
   return "good";
 }
 

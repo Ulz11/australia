@@ -34,5 +34,7 @@ describe("dates", () => {
     expect(km(850)).toBe("850 m");
     expect(km(12345)).toBe("12.3 km");
     expect(initials("Batbayar Erdene")).toBe("BE");
+    expect(initials("Dave  Carter")).toBe("DC");        // a double space is not a blank initial
+    expect(initials(" Nima ")).toBe("N");
   });
 });

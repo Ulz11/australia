@@ -2,30 +2,27 @@ import Link from "next/link";
 import { CircleAlert } from "lucide-react";
 import { requireRole } from "@/lib/session";
 import { Header, Page, Empty } from "@/components/Header";
-import { Row, Say, Section } from "@/components/ui";
-import { ConfirmButton } from "@/components/ConfirmButton";
+import { Row, Section } from "@/components/ui";
 import { DemoBillingNote } from "./DemoBillingNote";
 import { InvoiceStatus } from "./InvoiceStatus";
-import { bossBilling, listInvoices, matchesThisPeriod, type InvoiceRow } from "@/lib/invoicing";
-import {
-  fmtBillingDay, isOverdue, matchFeeCents, money, periodSoFar, priceWords, qpayPayable, statusWords, subscriptionCents,
-} from "@/lib/subscription";
-import { startSubscriptionNow, cancelSubscriptionNow, keepSubscription } from "@/actions/billing";
+import { bossBilling, listInvoices, matchesThisFortnight, type InvoiceRow } from "@/lib/invoicing";
+import { fmtBillingDay, isOverdue, matchFeeCents, moneyCents, periodSoFar, priceWords, qpayPayable } from "@/lib/subscription";
 export const dynamic = "force-dynamic";
 
 /**
- * What the boss is paying, in the order he'd ask: where do I stand, what has this month cost, what
- * have I been billed. No card is stored and nothing here charges anything: an open invoice has a "Pay" link
- * to its own page, where it is paid through QPay.
+ * What the boss is paying, in the order he'd ask: what is this fortnight running at, and what have I been
+ * billed. There is no status to report — nothing can lapse, nothing can be cancelled and nothing is ever
+ * switched off — so the screen is a number and a list, with no state block above them to read first.
+ *
+ * No card is stored and nothing here charges anything: an open invoice has a "Pay" link to its own page,
+ * where it is paid through QPay.
  */
 export default async function Billing() {
   const u = await requireRole("boss");
-  const [b, invoices, matches] = await Promise.all([bossBilling(u.id), listInvoices(u.id), matchesThisPeriod(u.id)]);
+  const [b, invoices, matches] = await Promise.all([bossBilling(u.id), listInvoices(u.id), matchesThisFortnight(u.id)]);
   if (!b) return <><Header title="Billing" back="/boss/me" /><Page><Row href="/boss/me/settings" tone="orange" title="Company details missing" sub="Your company name goes on the top of every invoice. Add it in Settings." /></Page></>;
 
-  const words = statusWords({ status: b.subscription_status, trial_ends_at: b.trial_ends_at, period_ends_at: b.period_ends_at });
-  const tone = b.subscription_status === "active" ? "green" : b.subscription_status === "lapsed" ? "orange" : "grey";
-  const so = periodSoFar({ matches, status: b.subscription_status });
+  const so = periodSoFar({ matches });
   const fee = matchFeeCents();
   const payable = qpayPayable();
   const now = new Date();
@@ -35,27 +32,35 @@ export default async function Billing() {
       <Header title="Billing" back="/boss/me" />
       <Page>
         <DemoBillingNote />
-        <Say tone={tone} title={words.title} sub={words.sub} />
 
-        <Section title="This period so far" hint={payable
+        <Section title="This fortnight so far" hint={payable
           ? "Nothing is charged to a card. We invoice you, and you pay each invoice through QPay in your bank app."
           : "Nothing is charged to a card. We invoice you and send you payment details."} />
-        <div className="card num divide-y divide-line">
-          <div className="py-2 flex justify-between gap-3">
-            <span>{so.matches} new worker{so.matches === 1 ? "" : "s"} OnSite found you × {priceWords(fee)}</span>
-            <span>{money(so.matchCents)}</span>
-          </div>
-          {b.subscription_status !== "cancelling" && b.subscription_status !== "lapsed" && (
-            <div className="py-2 flex justify-between gap-3">
-              <span>Pay tools, next month{b.period_ends_at ? ` from ${fmtBillingDay(b.period_ends_at)}` : ""}</span>
-              <span>{money(subscriptionCents())}</span>
+        {/* A fortnight OnSite introduced nobody in costs nothing and raises no invoice at all, so it is said in
+            words. A "$0.00" tile beside a due date reads like a bill for nothing and has bosses ringing up. */}
+        {so.matches === 0
+          ? <div className="card">
+              <div className="text-lg font-bold">Nothing to invoice this fortnight.</div>
+              <div className="text-steel mt-0.5">
+                {priceWords(fee)} is charged when you approve the first shift of a worker OnSite found you. There
+                haven&apos;t been any{b.period_ends_at ? ` since ${fmtBillingDay(b.period_started_at ?? b.period_ends_at)}` : ""}, so
+                there is nothing to pay.
+              </div>
             </div>
-          )}
-          <div className="py-2 flex justify-between text-lg font-extrabold"><span>Next invoice</span><span>{money(so.totalCents)}</span></div>
-        </div>
+          : <div className="card num divide-y divide-line">
+              <div className="py-2 flex justify-between gap-3">
+                <span>{so.matches} new worker{so.matches === 1 ? "" : "s"} OnSite found you × {priceWords(fee)}</span>
+                <span>{moneyCents(so.totalCents)}</span>
+              </div>
+              <div className="py-2 flex justify-between text-lg font-extrabold">
+                <span>Next invoice{b.period_ends_at ? <span className="text-steel text-base font-normal"> · {fmtBillingDay(b.period_ends_at)}</span> : null}</span>
+                <span>{moneyCents(so.totalCents)}</span>
+              </div>
+            </div>}
         <p className="text-steel">
           {priceWords(fee)} each time OnSite finds you a worker you haven&apos;t worked with, charged when you approve their
-          first shift. Shifts with the same worker after that are free. Posting, matching and approving hours are always free.
+          first shift. Shifts with the same worker after that are free, and a worker you brought yourself is never
+          charged for at all. Posting, matching and approving hours are always free. That is the whole price list.
         </p>
 
         <Section title="Invoices" />
@@ -68,19 +73,11 @@ export default async function Billing() {
                     title={<span className="num">{i.number}</span>}
                     sub={fmtBillingDay(i.issued_at)}
                     right={<div className="space-y-1">
-                      <div className="num font-bold">{money(i.total_cents)}</div>
+                      <div className="num font-bold">{moneyCents(i.total_cents)}</div>
                       <InvoiceStatus s={i.status} />
                     </div>} />)}
             </div>}
 
-        {b.subscription_status === "lapsed"
-          ? <form action={startSubscriptionNow}><button className="btn-primary">Start subscription</button></form>
-          : b.subscription_status === "cancelling"
-            ? <form action={keepSubscription}><button className="btn-ghost">Keep the pay tools</button></form>
-            : <ConfirmButton action={cancelSubscriptionNow}
-                msg={`Cancel the subscription? The pay tools keep working until ${b.period_ends_at ? fmtBillingDay(b.period_ends_at) : "the end of this period"}, then the pay run, the approvals record and Export stop. Posting shifts, matching and approving hours stay free. You can start again any time.`}>
-                Cancel subscription
-              </ConfirmButton>}
         <p className="text-steel"><Link href="/terms" className="underline font-bold">The rules</Link> — what you and your workers agree to, and every fee on this screen.</p>
       </Page>
     </>
@@ -104,7 +101,7 @@ function OpenInvoiceRow({ i, overdue }: { i: InvoiceRow; overdue: boolean }) {
               : `Due ${fmtBillingDay(i.due_at)}`}
           </div>
         </div>
-        <div className="shrink-0 num font-bold">{money(i.total_cents)}</div>
+        <div className="shrink-0 num font-bold">{moneyCents(i.total_cents)}</div>
       </Link>
       <Link href={href} className="btn btn-sm bg-ink text-white shrink-0" aria-label={`Pay invoice ${i.number}`}>Pay</Link>
     </div>

@@ -11,6 +11,11 @@ import { Big, BigMoney } from "./ui";
  * read as an external store so the server and the first paint agree on This year and the browser's own choice
  * takes over straight after; a browser that refuses storage (private window, storage blocked) gets This year
  * every time and nothing throws.
+ *
+ * Every word arrives as a prop. Both /worker/me and /boss/me draw this, and boss screens stay English
+ * (lib/i18n/index.ts: getLang() answers "en" for a boss whatever the cookie says) — so the worker caller
+ * passes t(…) and the boss caller passes plain strings, and neither the component nor a dictionary import
+ * has to know which side it is on.
  */
 const KEY = "onsite.record.range";
 type Range = "year" | "all";
@@ -26,21 +31,26 @@ const write = (v: Range) => {
 /** `money` picks the dollars tile; `locked` adds the padlock and the line that says who can see it. */
 export type Tile = { label: string; n?: string | number; money?: number; locked?: boolean };
 
-export function RecordTiles({ year, all }: { year: Tile[]; all: Tile[] }) {
+export function RecordTiles({ year, all, yearLabel = "This year", allLabel = "All time", lockedSub = "only you see this" }: {
+  year: Tile[]; all: Tile[]; yearLabel?: string; allLabel?: string; lockedSub?: string;
+}) {
   const range = useSyncExternalStore(subscribe, read, () => "year" as Range);
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <div className="seg grid-cols-2">
-        {([["year", "This year"], ["all", "All time"]] as const).map(([v, label]) => (
+        {([["year", yearLabel], ["all", allLabel]] as const).map(([v, label]) => (
           <button key={v} type="button" onClick={() => write(v)} aria-pressed={range === v}
             className={`seg-item ${range === v ? "seg-on" : ""}`}>{label}</button>
         ))}
       </div>
-      <div className="grid grid-cols-2 gap-2">
+      {/* .bento, not a bare grid-cols-2: these four ARE tiles — the 12px seam the lifted cards need, the
+          88px thumb floor, and the same two columns everything else on the screen is interlocked into.
+          Four 1x1s, which is what a figure and a two-word label earn. */}
+      <div className="bento">
         {(range === "year" ? year : all).map((t) => (
           t.money != null
-            ? <BigMoney key={t.label} n={t.money} label={t.label} icon={t.locked ? Lock : undefined} sub={t.locked ? "only you see this" : undefined} />
-            : <Big key={t.label} n={t.n ?? 0} label={t.label} icon={t.locked ? Lock : undefined} sub={t.locked ? "only you see this" : undefined} />
+            ? <BigMoney key={t.label} n={t.money} label={t.label} icon={t.locked ? Lock : undefined} sub={t.locked ? lockedSub : undefined} />
+            : <Big key={t.label} n={t.n ?? 0} label={t.label} icon={t.locked ? Lock : undefined} sub={t.locked ? lockedSub : undefined} />
         ))}
       </div>
     </div>

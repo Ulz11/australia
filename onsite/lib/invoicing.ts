@@ -2,9 +2,8 @@ import type { TransactionSql } from "postgres";
 import { sql } from "./db";
 import { TZ } from "./util";
 import {
-  addDays, addMonths, gstRegistered, invoiceNumber, matchFeeCents,
-  matchLineDescription, nextPeriod, splitGst, subscriptionCents, subscriptionLineDescription,
-  trialDays, dueDateFor, payToolsOpen, type SubscriptionStatus,
+  dueDateFor, gstRegistered, invoiceNumber, matchFeeCents,
+  matchLineDescription, nextPeriod, splitGst,
 } from "./subscription";
 
 /**
@@ -12,22 +11,24 @@ import {
  * number on it. The boss pays it through QPay (lib/invoiceQpay.ts), and settling that QPay invoice marks this
  * one paid (lib/billing.ts). npm run billing:paid marks one paid by hand, for anything settled another way.
  *
- * Everything that writes one goes through closePeriod(), which is the same idempotent step wherever
- * it is called from — the cron, "Start subscription", or re-subscribing. It locks the boss's row,
- * decides the lines, writes at most one invoice, and moves the period on. Running it twice for the
- * same period writes nothing the second time: (boss_id, period_start) is unique, and an introduction
- * that is already on a line is never picked up again.
+ * An invoice bills introductions and nothing else — $2 each, every 14 days. There is no subscription line
+ * and no line that isn't a match, so a fortnight in which OnSite introduced nobody produces **no invoice at
+ * all**. That is the ordinary outcome for a quiet boss, not an error: writeInvoice returns null, the period
+ * still moves on, and the screens have to say "nothing owed" in words rather than show a $0.00 invoice a
+ * boss would open expecting to owe something.
+ *
+ * Everything that writes one goes through closePeriod(), which is the same idempotent step wherever it is
+ * called from. It locks the boss's row, collects the unbilled introductions, writes at most one invoice, and
+ * moves the fortnight on. Running it twice for the same fortnight writes nothing the second time:
+ * (boss_id, period_start) is unique, and an introduction already on a line is never picked up again.
  */
 
 export type BossBilling = {
   user_id: string;
   company: string;
   abn: string | null;
-  subscription_status: SubscriptionStatus;
-  trial_ends_at: string | null;
   period_started_at: string | null;
   period_ends_at: string | null;
-  subscription_cancelled_at: string | null;
 };
 
 export type InvoiceRow = {
@@ -43,13 +44,21 @@ export type InvoiceRow = {
 };
 
 export type InvoiceLineRow = {
-  id: string; invoice_id: string; kind: "subscription" | "match"; description: string;
+  id: string; invoice_id: string;
+  /**
+   * "match" is the only kind written from now on. Invoices raised while there was a subscription still
+   * carry their 'subscription' line and are still opened, printed and paid, so the type a read returns
+   * keeps it — narrowing it here would only mean the screen renders a shape the database doesn't have.
+   */
+  kind: "subscription" | "match";
+  description: string;
   qty: number; unit_cents: number; amount_cents: number; worker_id: string | null; booking_id: string | null;
 };
 
-type Line = { kind: "subscription" | "match"; description: string; qty: number; unit_cents: number; amount_cents: number; worker_id: string | null; booking_id: string | null; introduction_id?: string };
+/** What closePeriod writes. One kind, because one thing is charged. */
+type Line = { kind: "match"; description: string; qty: number; unit_cents: number; amount_cents: number; worker_id: string | null; booking_id: string | null; introduction_id?: string };
 
-const BOSS_COLS = sql`b.user_id, b.company, b.abn, b.subscription_status, b.trial_ends_at, b.period_started_at, b.period_ends_at, b.subscription_cancelled_at`;
+const BOSS_COLS = sql`b.user_id, b.company, b.abn, b.period_started_at, b.period_ends_at`;
 
 export async function bossBilling(bossId: string): Promise<BossBilling | null> {
   const [b] = await sql<BossBilling[]>`SELECT ${BOSS_COLS} FROM bosses b WHERE b.user_id = ${bossId}`;
@@ -71,9 +80,10 @@ async function takeInvoiceNumber(tx: TransactionSql, at: Date): Promise<string> 
 
 /**
  * The matches this invoice bills: introductions that became billable (approved hours above zero)
- * before the period ended and have never been on an invoice. Anything billed after the period ended
- * belongs to the next one. A straggler from a period that closed without an invoice is picked up
- * here rather than quietly forgotten.
+ * before the fortnight ended and have never been on an invoice. Anything billed after it ended belongs
+ * to the next one. A straggler from a fortnight that closed without an invoice is picked up here rather
+ * than quietly forgotten — and so is a match that accrued under the old monthly period, which is how
+ * the switch to fortnights bills everyone once and nobody twice.
  */
 async function matchLines(tx: TransactionSql, bossId: string, before: Date): Promise<Line[]> {
   const rows = await tx<{ id: string; worker_id: string; name: string | null; billed_booking_id: string | null }[]>`
@@ -91,15 +101,10 @@ async function matchLines(tx: TransactionSql, bossId: string, before: Date): Pro
   }));
 }
 
-const subscriptionLine = (start: Date, end: Date): Line => {
-  const unit = subscriptionCents();
-  return { kind: "subscription", description: subscriptionLineDescription(start, end), qty: 1, unit_cents: unit, amount_cents: unit, worker_id: null, booking_id: null };
-};
-
 /**
  * Write one invoice and stamp the introductions it billed. Returns null when there is nothing to
- * bill — an empty invoice is not a record of anything — and null again if this period already has
- * one, which is what makes closing a period safe to repeat.
+ * bill — an empty invoice is not a record of anything, and under $2-a-match that is most fortnights —
+ * and null again if this period already has one, which is what makes closing a period safe to repeat.
  */
 async function writeInvoice(tx: TransactionSql, p: { bossId: string; periodStart: Date; periodEnd: Date; lines: Line[]; at: Date }): Promise<InvoiceRow | null> {
   if (!p.lines.length) return null;
@@ -124,81 +129,56 @@ async function writeInvoice(tx: TransactionSql, p: { bossId: string; periodStart
   return inv;
 }
 
-export type CloseOutcome = { invoiced: InvoiceRow | null; lapsed: boolean; trialEnded: boolean; closed: boolean };
-const NOTHING: CloseOutcome = { invoiced: null, lapsed: false, trialEnded: false, closed: false };
+export type CloseOutcome = { invoiced: InvoiceRow | null; closed: boolean };
+const NOTHING: CloseOutcome = { invoiced: null, closed: false };
 
 /**
- * Move one boss's billing on by one step, if a step is due. Three shapes, one transaction:
+ * Move one boss's billing on by one fortnight, if the fortnight is over. One shape, one transaction:
+ * close the fortnight that ended, bill the introductions that accrued in it, open the next one.
  *
- *   - the trial is over    → the subscription starts, and the first invoice goes out: this month's
- *                            subscription in advance, plus every match billed during the trial
- *   - the period is over   → next month's subscription in advance (unless the subscription is
- *                            ending, in which case it lapses instead) plus the matches this period
- *   - `force`              → "Start subscription" or re-subscribing: a period starting now, invoiced
- *                            at once, whatever the boss's status was
+ * `closed` says the fortnight moved on; `invoiced` is null whenever there was nothing to bill, which is
+ * the common case and not a failure. The two are separate for exactly that reason — a caller that read
+ * "no invoice" as "nothing happened" would close the same fortnight again on the next cron run.
  *
- * Nothing due, nothing happens. No invoice is written for $0.
+ * Safe to run twice. The boss's row is locked for the length of the transaction, so a second run either
+ * waits and then finds period_ends_at already in the future, or — for a boss several fortnights behind —
+ * closes the next one in turn, which is what should happen. Even if the row lock were lost, nothing is
+ * double-billed: (boss_id, period_start) is unique and an introduction is only picked up while its
+ * invoice_line_id is null.
  */
-export async function closePeriod(bossId: string, opts: { force?: boolean; now?: Date } = {}): Promise<CloseOutcome> {
+export async function closePeriod(bossId: string, opts: { now?: Date } = {}): Promise<CloseOutcome> {
   const now = opts.now ?? new Date();
   return (await sql.begin(async (tx) => {
     const [b] = await tx<BossBilling[]>`SELECT ${BOSS_COLS} FROM bosses b WHERE b.user_id = ${bossId} FOR UPDATE`;
-    if (!b) return NOTHING;
-
-    if (opts.force) {
-      if (b.subscription_status === "active" || b.subscription_status === "cancelling") return NOTHING;   // already paying
-      const start = now, end = addMonths(now, 1);
-      const lines = [subscriptionLine(start, end), ...(await matchLines(tx, bossId, now))];
-      const invoiced = await writeInvoice(tx, { bossId, periodStart: start, periodEnd: end, lines, at: now });
-      await tx`UPDATE bosses SET subscription_status = 'active', period_started_at = ${start}, period_ends_at = ${end},
-                 subscription_cancelled_at = NULL, trial_ends_at = COALESCE(trial_ends_at, ${start})
-               WHERE user_id = ${bossId}`;
-      return { invoiced, lapsed: false, trialEnded: b.subscription_status === "trialing", closed: true };
-    }
-
-    // The trial runs out: the subscription starts by itself, and this is the first invoice.
-    if (b.subscription_status === "trialing") {
-      if (!b.trial_ends_at || new Date(b.trial_ends_at) > now) return NOTHING;
-      const trialEnd = new Date(b.trial_ends_at);
-      const start = trialEnd, end = addMonths(trialEnd, 1);
-      const lines = [subscriptionLine(start, end), ...(await matchLines(tx, bossId, trialEnd))];
-      // The invoice covers the trial it closes — that is its period, and it keeps the first invoice
-      // clear of the first month's own close later on. The subscription line pays for the month ahead.
-      const invoiced = await writeInvoice(tx, { bossId, periodStart: addDays(trialEnd, -trialDays()), periodEnd: trialEnd, lines, at: now });
-      await tx`UPDATE bosses SET subscription_status = 'active', period_started_at = ${start}, period_ends_at = ${end} WHERE user_id = ${bossId}`;
-      return { invoiced, lapsed: false, trialEnded: true, closed: true };
-    }
-
-    if (b.subscription_status !== "active" && b.subscription_status !== "cancelling") return NOTHING;
-    if (!b.period_started_at || !b.period_ends_at || new Date(b.period_ends_at) > now) return NOTHING;
+    if (!b?.period_started_at || !b.period_ends_at) return NOTHING;
 
     const periodStart = new Date(b.period_started_at), periodEnd = new Date(b.period_ends_at);
-    const ending = b.subscription_status === "cancelling";
-    const next = nextPeriod(periodStart, periodEnd);
-    const lines = [
-      ...(ending ? [] : [subscriptionLine(next.start, next.end)]),
-      ...(await matchLines(tx, bossId, periodEnd)),
-    ];
+    if (periodEnd > now) return NOTHING;
+
+    const lines = await matchLines(tx, bossId, periodEnd);
     const invoiced = await writeInvoice(tx, { bossId, periodStart, periodEnd, lines, at: now });
-    await tx`UPDATE bosses SET subscription_status = ${ending ? "lapsed" : b.subscription_status},
-               period_started_at = ${next.start}, period_ends_at = ${next.end}
+    const next = nextPeriod(periodStart, periodEnd);
+    await tx`UPDATE bosses SET period_started_at = ${next.start}, period_ends_at = ${next.end}
              WHERE user_id = ${bossId}`;
-    return { invoiced, lapsed: ending, trialEnded: false, closed: true };
+    return { invoiced, closed: true };
   })) as CloseOutcome;
 }
 
 /**
- * The cron's billing step, every 20 minutes: end the trials that are up and close the periods that
- * are over. Counts only — no ids, no names, nothing that could identify a boss in a log.
+ * The cron's billing step, every 20 minutes: close the fortnights that are over. Counts only — no ids,
+ * no names, nothing that could identify a boss in a log.
+ *
+ * LIMIT 500 is only safe while bosses' fortnights are spread across the calendar. Each boss's period is
+ * anchored to their own signup day (migration 021), never to one shared date, so a run picks up the
+ * handful whose fortnight ended in the last 20 minutes rather than the whole book on one morning.
  */
-export async function closeBillingPeriods(now = new Date()): Promise<{ trials_ended: number; closed: number; invoiced: number; lapsed: number }> {
+export async function closeBillingPeriods(now = new Date()): Promise<{ closed: number; invoiced: number }> {
   const due = await sql<{ user_id: string }[]>`
     SELECT user_id FROM bosses
-    WHERE (subscription_status = 'trialing' AND trial_ends_at IS NOT NULL AND trial_ends_at <= ${now})
-       OR (subscription_status IN ('active','cancelling') AND period_ends_at IS NOT NULL AND period_ends_at <= ${now})
-    ORDER BY period_ends_at NULLS FIRST
+    WHERE period_ends_at IS NOT NULL AND period_ends_at <= ${now}
+    ORDER BY period_ends_at
     LIMIT 500`;
-  const out = { trials_ended: 0, closed: 0, invoiced: 0, lapsed: 0 };
+  const out = { closed: 0, invoiced: 0 };
   for (const { user_id } of due) {
     const r = await closePeriod(user_id, { now }).catch((e) => {
       console.error("billing: closing a period failed", (e as { code?: string })?.code ?? "error");   // never the boss or the message
@@ -206,39 +186,9 @@ export async function closeBillingPeriods(now = new Date()): Promise<{ trials_en
     });
     if (!r?.closed) continue;
     out.closed++;
-    if (r.trialEnded) out.trials_ended++;
     if (r.invoiced) out.invoiced++;
-    if (r.lapsed) out.lapsed++;
   }
   return out;
-}
-
-/** "Start subscription", from the upsell or from Billing. Invoices at once, from a period starting now. */
-export const startSubscription = (bossId: string, now = new Date()) => closePeriod(bossId, { force: true, now });
-
-/** Cancel: the pay tools keep working to the end of the period that is paid for, then lapse. */
-export async function cancelSubscription(bossId: string): Promise<boolean> {
-  const rows = await sql`
-    UPDATE bosses SET subscription_status = 'cancelling', subscription_cancelled_at = now()
-    WHERE user_id = ${bossId} AND subscription_status IN ('trialing','active')`;
-  return rows.count > 0;
-}
-
-/**
- * Changed their mind before the period ran out. This month is already paid for, so nothing is
- * invoiced and the period is left exactly as it was — it only takes the ending date off.
- */
-export async function resumeSubscription(bossId: string): Promise<boolean> {
-  const rows = await sql`
-    UPDATE bosses SET subscription_status = 'active', subscription_cancelled_at = NULL
-    WHERE user_id = ${bossId} AND subscription_status = 'cancelling'`;
-  return rows.count > 0;
-}
-
-/** What the boss may use. Only the pay tools are gated; posting, matching and approving never are. */
-export async function payToolsAllowed(bossId: string): Promise<{ allowed: boolean; boss: BossBilling | null }> {
-  const boss = await bossBilling(bossId);
-  return { allowed: !!boss && payToolsOpen(boss.subscription_status), boss };
 }
 
 export const listInvoices = (bossId: string) =>
@@ -252,8 +202,8 @@ export async function invoiceWithLines(number: string, bossId?: string): Promise
   return { invoice, lines };
 }
 
-/** This period so far: how many matches are already billed in it, for the Billing screen. */
-export async function matchesThisPeriod(bossId: string): Promise<number> {
+/** This fortnight so far: how many introductions are already billable and not yet on an invoice. */
+export async function matchesThisFortnight(bossId: string): Promise<number> {
   const [r] = await sql<{ n: number }[]>`
     SELECT COUNT(*)::int AS n FROM introductions
     WHERE boss_id = ${bossId} AND invoice_line_id IS NULL AND billed_at IS NOT NULL`;
@@ -295,4 +245,3 @@ export async function markInvoicePaid(number: string, note: string | null): Prom
   const { qpay_still_open, ...row } = invoice;
   return { ok: true, invoice: row, qpayStillOpen: qpay_still_open };
 }
-

@@ -6,8 +6,8 @@ import { AWARD_CASUAL_FLOOR, money } from "@/lib/award";
 import { demoSite } from "@/lib/flags";
 import { privacyContact } from "@/lib/privacy";
 import { TERMS_VERSION } from "@/lib/terms";
-// `money` here counts cents, lib/award's counts dollars: the award floor is a rate, the subscription is a price.
-import { money as moneyCents, gstRegistered, matchFeeCents, priceWords, subscriptionCents, trialDays } from "@/lib/subscription";
+// lib/award's money() counts dollars, priceWords counts cents: the award floor is a rate, the fee is a price.
+import { FORTNIGHT_DAYS, gstRegistered, matchFeeCents, paymentTermsDays, priceWords } from "@/lib/subscription";
 import { getLang, getT } from "@/lib/i18n/server";
 
 export const metadata: Metadata = { title: "The rules — OnSite" };
@@ -22,8 +22,8 @@ export default async function Terms() {
   await connection();                                   // prices and the contact come from the environment at request time
   const contact = privacyContact();
   const fee = priceWords(matchFeeCents());
-  const subscription = moneyCents(subscriptionCents());
-  const days = trialDays();
+  const days = paymentTermsDays();
+  const fortnight = FORTNIGHT_DAYS;
   const gst = gstRegistered();
   const demo = demoSite();
   // The rules themselves stay English — they have to be exact — but they say so in the reader's own language first.
@@ -78,32 +78,33 @@ export default async function Terms() {
       </Section>
 
       <Section title="Fees">
-        <p><b>Workers never pay anything.</b> Bosses pay two things, and neither is charged to a card.</p>
+        <p><b>Workers never pay anything.</b> Bosses pay one thing, and it is not charged to a card.</p>
         <ul className="list-disc pl-6 space-y-1">
           <li>
-            <b>{fee} for a new worker OnSite found you.</b> It is charged once per worker, when you first approve
-            their hours and the hours are above zero. Every shift with that worker afterwards is free.
+            <b>{fee} each time OnSite introduces you to a worker whose hours you approve.</b> It is charged once
+            per worker, when you first approve their hours and the hours are above zero. Every shift with that
+            worker afterwards is free.
             <b> A worker you brought yourself is never a worker OnSite found you</b>, so there is no fee for them,
             ever: anyone you added to your crew list or invited by their number, a shift booked straight to one
             person, and <i>same again tomorrow</i>.
           </li>
           <li>
-            <b>{subscription} a month for the pay tools</b>, after <b>{days} day{days === 1 ? "" : "s"} free</b> that
-            start the moment your account becomes a boss. The subscription starts by itself when the free days run
-            out. The free days cover the subscription, not the new workers: a match fee is charged from day one.
+            <b>Invoiced every {fortnight} days. Nothing else.</b> No monthly fee, no subscription and no trial —
+            so there is nothing to start, nothing to cancel and nothing that can run out. A fortnight in which
+            OnSite introduced you to nobody costs nothing, and we raise no invoice for it at all.
           </li>
         </ul>
-        <p>Posting shifts, matching, your workers list and approving hours are always free. Approving is what makes a match billable, so charging for it would mean charging you to be charged.</p>
+        <p>Posting shifts, matching, your workers list, the pay run, the record, Export and approving hours are always free. Approving is what makes an introduction billable, so charging for it would mean charging you to be charged.</p>
         {gst && <p>Prices include <b>GST</b> — one eleventh of the total is the GST already inside it. It is never added on top.</p>}
         <p>
-          Invoices are <b>due 14 days</b> after they are issued. You pay one through <b>QPay</b>, from your Mongolian
-          bank app, in tögrög: we convert the Australian dollar total at the exchange rate when you tap Pay, rounded
-          up to the next whole tögrög. OnSite never holds a card or any bank details.
+          Invoices are <b>due {days} day{days === 1 ? "" : "s"}</b> after they are issued. You pay one through <b>QPay</b>,
+          from your Mongolian bank app, in tögrög: we convert the Australian dollar total at the exchange rate when
+          you tap Pay, rounded up to the next whole tögrög. OnSite never holds a card or any bank details.
         </p>
         <p>
-          An invoice past its due date is shown as overdue, and that is all that happens — nothing switches off
-          because of it. The pay tools stop only when you cancel the subscription, and then only once the month you
-          have already paid for runs out. Posting shifts and approving hours keep working either way.
+          An invoice past its due date is shown as overdue, and <b>that is all that happens</b> — nothing switches
+          off, ever. Posting shifts, approving hours, the pay run and Export keep working whatever you owe. We would
+          rather ring you about it than lock you out of your own record of who worked and what they are owed.
         </p>
       </Section>
 

@@ -69,10 +69,11 @@ async function main() {
     const [u] = await sql`INSERT INTO users (phone, name, role, privacy_accepted_at, privacy_version, terms_accepted_at, terms_version)
                           VALUES (${P(b.n)}, ${b.name}, 'boss', now(), ${PRIVACY_VERSION}, now(), ${TERMS_VERSION}) RETURNING id`;
     uid[b.n] = u.id;
-    // Same free trial a real boss gets, so the demo's Billing screen shows a live one rather than a blank.
+    // The same fortnight a real boss gets from their first day (actions/auth.ts), so the demo's Billing screen
+    // shows a live period rather than a blank. No trial and no subscription status: there is nothing to be in.
     // invite_code is the boss's crew link, /join/c/<code> (migration 019).
-    await sql`INSERT INTO bosses (user_id, company, abn, trial_ends_at, period_started_at, period_ends_at, invite_code)
-              VALUES (${u.id}, ${b.company}, ${b.abn}, now() + interval '3 days', now() + interval '3 days', now() + interval '1 month 3 days', ${"B" + b.n + "CREW"})`;
+    await sql`INSERT INTO bosses (user_id, company, abn, period_started_at, period_ends_at, invite_code)
+              VALUES (${u.id}, ${b.company}, ${b.abn}, now(), now() + interval '14 days', ${"B" + b.n + "CREW"})`;
   }
   for (const [n, name, sub, lat, lng, tix, visa, radius] of workers) {
     const [u] = await sql`INSERT INTO users (phone, name, role, privacy_accepted_at, privacy_version, terms_accepted_at, terms_version)
@@ -99,9 +100,9 @@ async function main() {
   }
   await sql`INSERT INTO availability ${sql(rows, "worker_id", "day", "status")}`;
   await sql`INSERT INTO crew (boss_id, worker_id, type, rate, since) VALUES
-    (${uid[1]}, ${uid[108]}, 'fulltime', 42.00, CURRENT_DATE - 200), (${uid[1]}, ${uid[109]}, 'fulltime', 40.00, CURRENT_DATE - 120),
-    (${uid[1]}, ${uid[102]}, 'casual', 36.00, CURRENT_DATE - 60), (${uid[1]}, ${uid[105]}, 'casual', 35.55, CURRENT_DATE - 45),
-    (${uid[1]}, ${uid[103]}, 'casual', 38.00, CURRENT_DATE - 30), (${uid[1]}, ${uid[112]}, 'casual', 37.00, CURRENT_DATE - 20)`;
+    (${uid[1]}, ${uid[108]}, 'fulltime', 42.00, (now() AT TIME ZONE 'Australia/Sydney')::date - 200), (${uid[1]}, ${uid[109]}, 'fulltime', 40.00, (now() AT TIME ZONE 'Australia/Sydney')::date - 120),
+    (${uid[1]}, ${uid[102]}, 'casual', 36.00, (now() AT TIME ZONE 'Australia/Sydney')::date - 60), (${uid[1]}, ${uid[105]}, 'casual', 35.55, (now() AT TIME ZONE 'Australia/Sydney')::date - 45),
+    (${uid[1]}, ${uid[103]}, 'casual', 38.00, (now() AT TIME ZONE 'Australia/Sydney')::date - 30), (${uid[1]}, ${uid[112]}, 'casual', 37.00, (now() AT TIME ZONE 'Australia/Sydney')::date - 20)`;
 
   // 3 weeks of history for Dave's crew (approved; older weeks paid).
   const past: { worker: number; site: number; d: number; hours: number; rate: number; paid: boolean }[] = [];
@@ -201,7 +202,7 @@ async function main() {
     VALUES (${ds.id}, ${uid[114]}, 'worker', 6, '08:00', 'Can I start at 8 and do 6 hours? I have class at 3.')
     ON CONFLICT DO NOTHING`;
   // one from Batbayar (the demo worker's phone) so his Requests screen isn't empty
-  const [openForBat] = await sql`SELECT id, boss_id FROM shifts WHERE status = 'open' AND day >= CURRENT_DATE AND boss_id <> ${uid[1]} ORDER BY day LIMIT 1`;
+  const [openForBat] = await sql`SELECT id, boss_id FROM shifts WHERE status = 'open' AND day >= (now() AT TIME ZONE 'Australia/Sydney')::date AND boss_id <> ${uid[1]} ORDER BY day LIMIT 1`;
   if (openForBat) {
     await sql`INSERT INTO offers (shift_id, worker_id, from_role, rate, message)
       VALUES (${openForBat.id}, ${uid[101]}, 'worker', 40.00, 'I''ve done 6 years formwork and I''ve got my own tools — can you do $40?')

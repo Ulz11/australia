@@ -5,7 +5,7 @@ import { sql } from "@/lib/db";
 import { createSession, destroySession, getUser, signedInPath, FRAME_COOKIES, SESSION_COOKIE } from "@/lib/session";
 import { revalidatePath } from "@/lib/nav";
 import { normalisePhone, sendSms } from "@/lib/sms";
-import { isLatLng, isUuid } from "@/lib/validate";
+import { cleanAbn, isLatLng, isUuid } from "@/lib/validate";
 import { pinFor } from "@/lib/place";
 import { OTP, hashCode, inviteCode, newCode, phoneAllowed } from "@/lib/otp";
 import { crewJoinedWords } from "@/lib/crew";
@@ -16,7 +16,7 @@ import { devShowOtpOn } from "@/lib/flags";
 import { BETA_REFUSAL, betaInviteOnly, mayRequestCode } from "@/lib/beta";
 import { PRIVACY_VERSION } from "@/lib/privacy";
 import { TERMS_VERSION } from "@/lib/terms";
-import { addMonths, trialEndFrom } from "@/lib/subscription";
+import { FORTNIGHT_DAYS, addDays } from "@/lib/subscription";
 import { offerPasskeyNextScreen } from "@/lib/passkeys";
 
 /** `refused: "invite_only"` marks the closed-beta refusal, so the mobile API can answer 403 instead of 429. */
@@ -164,6 +164,11 @@ export async function completeOnboarding(form: FormData) {
   const role = String(form.get("role"));
   const name = String(form.get("name") || "").trim();
   if (!name || !["boss", "worker"].includes(role)) return;
+  // A boss's ABN gets the same check Settings gives it (saveCompany): a number that fails the ATO's own sum is handed
+  // back before anything is written, so it never reaches an invoice and never leaves a half-made boss behind.
+  const typedAbn = role === "boss" ? String(form.get("abn") || "").trim() : "";
+  const abn = typedAbn ? cleanAbn(typedAbn) : null;
+  if (typedAbn && !abn) redirect("/onboarding?err=abn");
   // Consent is checked here, not only by the checkbox's `required`: a form posted without it sets nothing up.
   // One tick covers the privacy notice and the rules; both are stamped with the version that was on screen.
   if (form.get("privacy") !== "yes") {
@@ -175,16 +180,16 @@ export async function completeOnboarding(form: FormData) {
               terms_accepted_at = now(), terms_version = ${TERMS_VERSION}
             WHERE id = ${u.id}`;
   if (role === "boss") {
-    const company = String(form.get("company") || name).trim();
-    const abn = String(form.get("abn") || "").replace(/\s/g, "") || null;
-    const trialEnd = trialEndFrom(new Date());
-    // The free trial starts the moment the account becomes a boss, and the subscription starts by
-    // itself when it runs out — both said plainly under the Boss choice on this screen.
+    const company = String(form.get("company") || name).trim().slice(0, 80);
+    // The billing fortnight starts the moment the account becomes a boss. There is no trial, because there is
+    // nothing to try: the boss pays $2 an introduction and nothing at all until they approve someone's hours.
+    // Nothing here can lapse, so no status is written — what /boss/billing shows is just this period.
     // The invite code is their crew link (/join/c/<code>); codes are short, so a clash is retried.
+    const periodStart = new Date();
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
-        await sql`INSERT INTO bosses (user_id, company, abn, trial_ends_at, subscription_status, period_started_at, period_ends_at, invite_code)
-                  VALUES (${u.id}, ${company}, ${abn}, ${trialEnd}, 'trialing', ${trialEnd}, ${addMonths(trialEnd, 1)}, ${inviteCode()})
+        await sql`INSERT INTO bosses (user_id, company, abn, period_started_at, period_ends_at, invite_code)
+                  VALUES (${u.id}, ${company}, ${abn}, ${periodStart}, ${addDays(periodStart, FORTNIGHT_DAYS)}, ${inviteCode()})
                   ON CONFLICT (user_id) DO UPDATE SET company = EXCLUDED.company, abn = EXCLUDED.abn,
                     invite_code = COALESCE(bosses.invite_code, EXCLUDED.invite_code)`;
         break;

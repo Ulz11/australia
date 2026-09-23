@@ -1,4 +1,5 @@
 import { sql } from "@/lib/db";
+import { siteToday } from "@/lib/siteClock";
 import { demoConsoleOn } from "@/lib/flags";
 
 /** What just happened, for the control room's live feed. Demo mode only. */
@@ -12,7 +13,7 @@ export async function GET() {
           (SELECT COUNT(*) FROM users WHERE role = 'boss')::int AS bosses,
           (SELECT COUNT(*) FROM users WHERE role = 'worker')::int AS workers,
           (SELECT COUNT(*) FROM projects WHERE NOT archived)::int AS sites,
-          (SELECT COUNT(*) FROM shifts WHERE status = 'open' AND day >= CURRENT_DATE)::int AS open_shifts,
+          (SELECT COUNT(*) FROM shifts WHERE status = 'open' AND day >= ${siteToday()})::int AS open_shifts,
           (SELECT COUNT(*) FROM bookings WHERE status IN ('accepted','clocked_in'))::int AS live_bookings,
           (SELECT COUNT(*) FROM bookings WHERE status = 'clocked_out')::int AS to_approve,
           (SELECT COUNT(*) FROM bookings WHERE status = 'approved')::int AS owed,

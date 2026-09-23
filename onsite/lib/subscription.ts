@@ -2,11 +2,14 @@
  * What the boss pays, as arithmetic — no database, no clock of its own. Every function takes the
  * numbers it needs and returns numbers, so the rules can be read and tested on their own.
  *
- * The two charges:
- *   - $33 a month for the pay tools, after a 3-day free trial. The subscription starts by itself
- *     when the trial ends; the first charge date is the trial end.
+ * There is one charge, and it is the whole price list:
  *   - $2 the first time OnSite introduces a boss to a worker and that worker's hours are approved.
- *     Introductions bill from day one — the trial covers the subscription, not the matches.
+ *     Repeat shifts with that worker are free forever, and a boss's own crew is never an introduction.
+ *
+ * Invoiced every 14 days, due 7 days after that. There is no subscription, no trial, no monthly fee
+ * and nothing that can lapse — so nothing in the app is ever switched off for not paying, and this
+ * file has no notion of a boss's "status" for anything to key off. A fortnight in which OnSite
+ * introduced nobody costs nothing and writes no invoice at all (lib/invoicing.ts).
  *
  * Money is whole cents everywhere. Prices are GST-inclusive: when OnSite is registered for GST the
  * invoice says so and shows the GST already inside the total (one eleventh), it is never added on top.
@@ -32,8 +35,16 @@ const intEnv = (name: string, fallback: number, env: Env = process.env) => {
 
 /** Read at call time, never frozen at import — the same rule the demo switches follow. */
 export const matchFeeCents = (env?: Env) => intEnv("MATCH_FEE_CENTS", 200, env);
-export const subscriptionCents = (env?: Env) => intEnv("SUBSCRIPTION_CENTS", 3300, env);
-export const trialDays = (env?: Env) => intEnv("TRIAL_DAYS", 3, env);
+
+/**
+ * How long a boss has to pay, and why it is its own number rather than the fortnight.
+ *
+ * The cycle is 14 days. If the terms were 14 days too, every invoice would still be inside its
+ * payment window when the next one was raised, so a boss would permanently carry two open invoices
+ * and "overdue" would only ever describe an invoice a month old. Seven days means the fortnight's
+ * invoice is settled before the next fortnight closes, and one open invoice is the normal state.
+ */
+export const paymentTermsDays = (env?: Env) => intEnv("PAYMENT_TERMS_DAYS", 7, env);
 
 /** GST_REGISTERED=1 → the invoice shows the GST inside the total. Anything else → no GST line at all. */
 export const gstRegistered = (env: Env = process.env) => env.GST_REGISTERED === "1";
@@ -74,8 +85,8 @@ export const qpayPayable = () => qpayConfigured();
 /** "₮72,000" — whole tögrög with thousands separators. */
 export const tugrik = (mnt: number | string) => "₮" + Math.round(Number(mnt)).toLocaleString("en-AU");
 
-/** "A$33.00" — where the tögrög sit beside it, the dollars are said to be Australian. */
-export const audMoney = (cents: number) => "A" + money(cents);
+/** "A$24.00" — where the tögrög sit beside it, the dollars are said to be Australian. */
+export const audMoney = (cents: number) => "A" + moneyCents(cents);
 
 /** The rate a tögrög amount was worked out at, and where it came from. Source and day are null on a QR raised before they were kept. */
 export type RateUsed = { rate: number | string; source: FxSource | null; asOf: string | null };
@@ -136,35 +147,29 @@ export function billingBusiness(env: Env = process.env): { name: string; abn: st
   return { name, abn: env.BUSINESS_ABN?.replace(/\s/g, "") || null };
 }
 
-/** How long a boss has before the subscription starts. */
+/**
+ * Days as milliseconds, added to an instant — never through a local-time date constructor.
+ *
+ * A fortnight has to be exactly 14 × 24 hours. Sydney's clocks move on the first Sunday in October and
+ * the first in April, so a period built by setting a calendar date would be 13 days 23 hours one
+ * fortnight a year and 14 days 1 hour another, and the boundary would walk an hour further every six
+ * months until a boss's period started at 3am. Instant arithmetic doesn't have that drift.
+ */
 export const DAY_MS = 24 * 60 * 60 * 1000;
 export const addDays = (d: Date, n: number) => new Date(d.getTime() + n * DAY_MS);
-export const trialEndFrom = (signedUpAt: Date, env?: Env) => addDays(signedUpAt, trialDays(env));
 
-/**
- * Anniversary billing: a month later on the same day of the month, with no proration. The 31st of a
- * month that has no 31st lands on the last day of the shorter one (31 Jan → 28 Feb), which is what
- * every subscription does and what "no proration" means here.
- */
-export function addMonths(d: Date, n: number): Date {
-  const day = d.getUTCDate();
-  const shifted = new Date(d.getTime());
-  shifted.setUTCDate(1);
-  shifted.setUTCMonth(shifted.getUTCMonth() + n);
-  const lastOfMonth = new Date(Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth() + 1, 0)).getUTCDate();
-  shifted.setUTCDate(Math.min(day, lastOfMonth));
-  return shifted;
-}
+/** The billing cycle. Everything a boss is told about money is said in fortnights. */
+export const FORTNIGHT_DAYS = 14;
 
 /** The period that follows this one. Periods never overlap and never leave a gap. */
-export const nextPeriod = (start: Date, end: Date) => ({ start: end, end: addMonths(end, 1) });
+export const nextPeriod = (_start: Date, end: Date) => ({ start: end, end: addDays(end, FORTNIGHT_DAYS) });
 
-/** An invoice is due two weeks after it is issued. */
-export const dueDateFor = (issuedAt: Date) => addDays(issuedAt, 14);
+/** An invoice is due PAYMENT_TERMS_DAYS after it is issued — seven days, by default. */
+export const dueDateFor = (issuedAt: Date, env?: Env) => addDays(issuedAt, paymentTermsDays(env));
 
 /**
- * GST on a GST-inclusive total. One eleventh of the total is the GST already in it — so a $33
- * subscription is $30 plus $3 GST, never $33 plus $3.30.
+ * GST on a GST-inclusive total. One eleventh of the total is the GST already in it — so a fortnight
+ * of eleven introductions is $22.00 all up, of which $2.00 is GST, never $22.00 plus $2.20.
  */
 export function splitGst(totalCents: number, registered: boolean): { subtotal_cents: number; gst_cents: number; total_cents: number } {
   const total = Math.round(totalCents);
@@ -186,72 +191,27 @@ export const fmtBillingDay = (d: Date | string, tz = TZ) =>
 export const fmtInvoiceDay = (d: Date | string, tz = TZ) =>
   new Date(d).toLocaleDateString("en-AU", { day: "numeric", month: "long", year: "numeric", timeZone: tz });
 
-export type SubscriptionStatus = "trialing" | "active" | "cancelling" | "lapsed";
-
-export type BillingState = {
-  status: SubscriptionStatus;
-  trial_ends_at: Date | string | null;
-  period_ends_at: Date | string | null;
-};
-
 /**
- * The pay tools are the subscription, and they are the only thing that is. Posting shifts, matching,
- * Workers and approving hours never stop — approving is what makes a match billable, so charging for
- * it would mean charging a boss to be charged.
+ * Cents as money, the same way the rest of the app writes it.
+ *
+ * The name says cents out loud because lib/award.ts has a money() that takes dollars, and the two were
+ * once imported side by side under aliases: that is how a $33 subscription shipped as "$3,300.00 a month".
  */
-export const payToolsOpen = (status: SubscriptionStatus) => status !== "lapsed";
-
-/**
- * The status in words a boss doesn't have to decode. One line, one number, one date — the same
- * sentence on the Billing screen and in the upsell.
- */
-export function statusWords(s: BillingState, env?: Env): { title: string; sub: string } {
-  const price = money(subscriptionCents(env));
-  const trial = s.trial_ends_at ? fmtBillingDay(s.trial_ends_at) : null;
-  const ends = s.period_ends_at ? fmtBillingDay(s.period_ends_at) : null;
-  switch (s.status) {
-    case "trialing":
-      return { title: trial ? `Free trial — ends ${trial}, then ${price} a month` : `Free trial — then ${price} a month`,
-               sub: "Cancel any time. Posting shifts, matching and approving hours are always free." };
-    case "active":
-      return { title: ends ? `Subscribed — next invoice ${ends}` : "Subscribed", sub: `${price} a month for the pay tools.` };
-    case "cancelling":
-      return { title: ends ? `Cancelling — pay tools until ${ends}` : "Cancelling",
-               sub: "No more invoices after that. You can start again whenever you want." };
-    case "lapsed":
-      return { title: "Not subscribed", sub: `The pay run, approvals record and export are ${price} a month.` };
-  }
-}
-
-/** The upsell a lapsed boss sees instead of the pay run. */
-export function upsellWords(trialEndsAt: Date | string | null, env?: Env): { title: string; sub: string } {
-  const price = money(subscriptionCents(env));
-  return {
-    title: trialEndsAt ? `Your free trial ended on ${fmtBillingDay(trialEndsAt)}.` : "Your free trial has ended.",
-    sub: `The pay run, approvals record and export are ${price} a month.`,
-  };
-}
-
-/** Cents as money, the same way the rest of the app writes it. */
-export const money = (cents: number) =>
+export const moneyCents = (cents: number) =>
   "$" + centsToDollars(cents).toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-/** "$33 a month" with no cents when it is a round number of dollars — for a sentence, not a total. */
-export const priceWords = (cents: number) => (cents % 100 === 0 ? `$${cents / 100}` : money(cents));
+/** "$2 an introduction" with no cents when it is a round number of dollars — for a sentence, not a total. */
+export const priceWords = (cents: number) => (cents % 100 === 0 ? `$${cents / 100}` : moneyCents(cents));
 
 /**
- * What this period has cost so far: the matches already billed in it, plus the subscription that
- * will be charged in advance for the next one (never charged while the subscription is ending).
+ * What this fortnight has cost so far. Only introductions cost anything, so this is a multiplication —
+ * and a boss OnSite introduced nobody to this fortnight owes nothing, which is a real and common answer
+ * the screens must be able to say in words rather than as a $0.00 tile.
  */
-export function periodSoFar(p: { matches: number; status: SubscriptionStatus }, env?: Env) {
+export function periodSoFar(p: { matches: number }, env?: Env) {
   const fee = matchFeeCents(env);
-  const matchCents = p.matches * fee;
-  const nextSubscription = p.status === "active" || p.status === "trialing" ? subscriptionCents(env) : 0;
-  return { matches: p.matches, fee, matchCents, nextSubscription, totalCents: matchCents + nextSubscription };
+  return { matches: p.matches, fee, totalCents: p.matches * fee };
 }
 
-/** The line an invoice carries for one billable match. */
+/** The line an invoice carries for one billable match. It is the only kind of line OnSite writes. */
 export const matchLineDescription = (workerName: string) => `Introduction — ${workerName}`;
-/** The subscription line, always the period it pays for. */
-export const subscriptionLineDescription = (start: Date | string, end: Date | string) =>
-  `OnSite pay tools — ${fmtInvoiceDay(start)} to ${fmtInvoiceDay(end)}`;

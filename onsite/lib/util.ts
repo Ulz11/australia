@@ -48,4 +48,13 @@ export function ago(d: Date | string, now: Date = new Date()): string {
   const { key, n } = agoParts(d, now);
   return key.split("{n}").join(String(n));
 }
-export const initials = (name: string) => name.split(" ").map((s) => s[0]).join("").slice(0, 2).toUpperCase();
+/** "BE" for Batbayar Erdene. A run of spaces is not a name, so it is skipped rather than read as a blank initial. */
+export const initials = (name: string) => name.trim().split(/\s+/).filter(Boolean).map((s) => s[0]).join("").slice(0, 2).toUpperCase();
+
+/**
+ * A number out of Postgres, or null. Postgres hands every `numeric` back as a string — boss_stats gives
+ * "2.0", not 2 — so a column interpolated straight into a sentence read "approves hours in about 2.0 h",
+ * and any arithmetic on it would have concatenated rather than added. This is the one place that turns
+ * one into a number, and it keeps null as null rather than the 0 that `Number(null)` would give.
+ */
+export const numOrNull = (v: string | number | null | undefined): number | null => (v == null ? null : Number(v));

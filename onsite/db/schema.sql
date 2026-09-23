@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS crew (
   worker_id   uuid REFERENCES workers(user_id) ON DELETE CASCADE,
   type        text NOT NULL DEFAULT 'casual' CHECK (type IN ('fulltime','casual')),
   rate        numeric(6,2),
-  since       date NOT NULL DEFAULT CURRENT_DATE,
+  since       date NOT NULL DEFAULT (now() AT TIME ZONE 'Australia/Sydney')::date,   -- named zone, not CURRENT_DATE: see worker_stats above
   PRIMARY KEY (boss_id, worker_id)
 );
 
@@ -134,10 +134,14 @@ CREATE TABLE IF NOT EXISTS calls (
 );
 
 -- Reliability: shows up (accepted -> clocked in) on past shifts; cancellations count against.
+-- The day boundary is NAMED, never CURRENT_DATE. Through Neon's pooler the session runs in GMT
+-- (lib/siteClock.ts), so CURRENT_DATE here was yesterday for the first ten hours of every Sydney day —
+-- and this is the view the matching engine ranks people on. Migration 022 moves it to the site's own
+-- clock; it cannot be done here because projects.tz does not exist until migration 020.
 CREATE OR REPLACE VIEW worker_stats AS
 SELECT w.user_id AS worker_id,
-       COUNT(b.id) FILTER (WHERE s.day < CURRENT_DATE AND b.status <> 'removed')                        AS past_shifts,
-       COUNT(b.id) FILTER (WHERE s.day < CURRENT_DATE AND b.status IN ('clocked_in','clocked_out','approved','paid')) AS showed,
+       COUNT(b.id) FILTER (WHERE s.day < (now() AT TIME ZONE 'Australia/Sydney')::date AND b.status <> 'removed')                        AS past_shifts,
+       COUNT(b.id) FILTER (WHERE s.day < (now() AT TIME ZONE 'Australia/Sydney')::date AND b.status IN ('clocked_in','clocked_out','approved','paid')) AS showed,
        COUNT(b.id) FILTER (WHERE b.status = 'cancelled')                                                 AS cancels,
        COUNT(b.id) FILTER (WHERE b.status IN ('approved','paid'))                                        AS completed
 FROM workers w
@@ -245,7 +249,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS offers_one_open ON offers(shift_id, worker_id)
 CREATE OR REPLACE VIEW site_crew AS
 SELECT p.id AS project_id, p.boss_id, p.crew_target,
        COUNT(DISTINCT b.worker_id) FILTER (
-         WHERE s.day >= CURRENT_DATE AND b.status NOT IN ('removed','cancelled')
+         WHERE s.day >= (now() AT TIME ZONE 'Australia/Sydney')::date AND b.status NOT IN ('removed','cancelled')
        )::int AS booked_ahead
 FROM projects p
 LEFT JOIN shifts s   ON s.project_id = p.id AND s.status IN ('open','filled')

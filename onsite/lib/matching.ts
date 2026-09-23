@@ -1,5 +1,6 @@
 import { sql } from "./db";
 import { sendAlertsSoon } from "./alerts";
+import { siteMoment } from "./siteClock";
 import { fmtDay, fmtTime } from "./util";
 import { pickBatch, urgencyOf, NEW_WORKER_PRIOR, ROUND_MINUTES, URGENT_HOURS, type Candidate } from "./rules";
 
@@ -46,14 +47,16 @@ export async function findCandidates(shiftId: string, limit: number): Promise<Ca
 /** Run one notification round for a shift. Returns how many were notified. */
 export async function runMatchingRound(shiftId: string): Promise<{ notified: number; remaining: number; urgent: boolean }> {
   const [sh] = await sql`
-    SELECT s.*, s.day::text AS day, s.start_time::text AS start_time, p.name AS site, p.address,
+    SELECT s.*, s.day::text AS day, s.start_time::text AS start_time, p.name AS site, p.address, p.tz,
            (SELECT COUNT(*) FROM bookings b WHERE b.shift_id = s.id AND b.status NOT IN ('removed','cancelled'))::int AS taken
     FROM shifts s JOIN projects p ON p.id = s.project_id
     WHERE s.id = ${shiftId} AND s.status = 'open' AND NOT p.archived`;
   if (!sh) return { notified: 0, remaining: 0, urgent: false };
   const remaining = sh.spots - sh.taken;
   if (remaining <= 0) return { notified: 0, remaining: 0, urgent: false };
-  const u = urgencyOf({ day: sh.day, start_time: sh.start_time });
+  // How far away the start is depends on which clock it is written on: 06:30 in Perth is three hours later
+  // than 06:30 in Sydney, so the site's zone comes with the shift.
+  const u = urgencyOf({ day: sh.day, start_time: sh.start_time }, new Date(), sh.tz);
 
   // Direct booking ("Book again") skips the pool entirely.
   if (sh.direct_worker_id) {
@@ -87,13 +90,16 @@ export async function runMatchingRound(shiftId: string): Promise<{ notified: num
  * every 20 minutes; a shift starting within three hours gets one every 5.
  */
 export async function expandStaleShifts() {
+  // Both questions here — has it started, does it start within three hours — compare a bare day + time to
+  // now(), so the site's zone is named rather than left to the connection (lib/siteClock.ts).
+  const startsAt = siteMoment(sql`s.day + s.start_time`, sql`p.tz`);
   const stale = await sql<{ id: string }[]>`
     SELECT s.id FROM shifts s JOIN projects p ON p.id = s.project_id
     WHERE s.status = 'open' AND NOT p.archived AND s.direct_worker_id IS NULL
-      AND (s.day + s.start_time) > now()
+      AND ${startsAt} > now()
       AND s.spots > (SELECT COUNT(*) FROM bookings b WHERE b.shift_id = s.id AND b.status NOT IN ('removed','cancelled'))
       AND (s.last_notified_at IS NULL OR s.last_notified_at < now() - (
-            CASE WHEN (s.day + s.start_time) - now() <= (${URGENT_HOURS} || ' hours')::interval
+            CASE WHEN ${startsAt} - now() <= (${URGENT_HOURS} || ' hours')::interval
                  THEN interval '5 minutes' ELSE (${ROUND_MINUTES} || ' minutes')::interval END))`;
   const out: Record<string, number> = {};
   for (const s of stale) out[s.id] = (await runMatchingRound(s.id)).notified;

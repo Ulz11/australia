@@ -8,6 +8,7 @@ import { runMatchingRound } from "@/lib/matching";
 import { fmtDay, todayIso } from "@/lib/util";
 import { bookWorker } from "@/lib/booking";
 import { isUuid, isDay, isTime, num, isLatLng, cleanAbn } from "@/lib/validate";
+import { siteToday } from "@/lib/siteClock";
 import { sendAlertsSoon, SMS_SHARE_PER_BOSS } from "@/lib/alerts";
 import { hit, refund, SHIFT_POSTS_PER_HOUR } from "@/lib/ratelimit";
 import { hasLines, readPostLines, type PostLine } from "@/lib/posts";
@@ -32,8 +33,11 @@ export async function createProject(form: FormData) {
 export async function archiveProject(id: string) {
   const u = await requireRole("boss");
   if (!isUuid(id)) redirect("/boss");
-  const [{ n }] = await sql`SELECT COUNT(*)::int AS n FROM shifts WHERE project_id = ${id} AND boss_id = ${u.id}
-                            AND status IN ('open','filled') AND day >= CURRENT_DATE`;
+  // The site's own day, not the connection's: as CURRENT_DATE this let a boss archive a site all morning
+  // while a shift was still running on it (lib/siteClock.ts).
+  const [{ n }] = await sql`SELECT COUNT(*)::int AS n FROM shifts s JOIN projects p ON p.id = s.project_id
+                            WHERE s.project_id = ${id} AND s.boss_id = ${u.id}
+                            AND s.status IN ('open','filled') AND s.day >= ${siteToday(sql`p.tz`)}`;
   if (n > 0) redirect(`/boss/projects/${id}?err=${n}`);   // cancel or finish them first
   await sql`UPDATE projects SET archived = true WHERE id = ${id} AND boss_id = ${u.id}`;
   redirect("/boss");
@@ -209,6 +213,12 @@ export async function approveHours(form: FormData) {
     ${`${fmtDay(b.day)}: ${hours}h approved${edited ? ` (you recorded ${Number(b.hours_worked)}h)` : ""}${reason ? ` — ${reason}` : ""}. $${pay.gross.toFixed(2)} owed by ${u.name}.`})`;
   sendAlertsSoon();
   revalidatePath(`/boss/shifts/${b.shift_id}`);
+  // The same booking is a row on the queue and a number in /boss's ranking. Approving it here and leaving
+  // those two stale is how a boss comes back to /boss/approve and re-approves what he already settled.
+  revalidatePath("/boss/approve");
+  revalidatePath("/boss");
+  revalidatePath("/boss/pay");
+  revalidatePath("/boss/money");
 }
 
 export async function markPaid(bookingId: string, paid: boolean) {
@@ -224,6 +234,10 @@ export async function markPaid(bookingId: string, paid: boolean) {
     SELECT worker_id, shift_id, 'paid', ${u.name} || ' marked ' || to_char(day, 'Dy DD Mon') || ' as paid.' FROM b WHERE ${paid}`;
   if (paid) sendAlertsSoon();
   revalidatePath("/boss/pay");
+  // /boss/money renders this same PaidToggle over the same bookings, one fortnight at a time. Without this
+  // the toggle flips optimistically there and the next navigation hands back the row still unpaid.
+  revalidatePath("/boss/money");
+  revalidatePath("/boss");
 }
 
 export async function markPaidMany(bookingIds: string[], paid: boolean) {
@@ -240,6 +254,10 @@ export async function markPaidMany(bookingIds: string[], paid: boolean) {
     SELECT worker_id, shift_id, 'paid', ${u.name} || ' marked ' || to_char(day, 'Dy DD Mon') || ' as paid.' FROM b WHERE ${paid}`;
   if (paid) sendAlertsSoon();
   revalidatePath("/boss/pay");
+  // /boss/money renders this same PaidToggle over the same bookings, one fortnight at a time. Without this
+  // the toggle flips optimistically there and the next navigation hands back the row still unpaid.
+  revalidatePath("/boss/money");
+  revalidatePath("/boss");
 }
 
 export async function setPayMode(mode: "award" | "flat") {
@@ -431,8 +449,9 @@ export async function blockWorker(workerId: string) {
     c AS (DELETE FROM crew WHERE boss_id = ${u.id} AND worker_id = ${workerId}),
     -- off every shift of mine that hasn't happened yet
     b AS (
-      UPDATE bookings b SET status = 'removed' FROM shifts s
-      WHERE b.worker_id = ${workerId} AND s.id = b.shift_id AND s.boss_id = ${u.id} AND s.day >= CURRENT_DATE AND b.status IN ('accepted','clocked_in')
+      UPDATE bookings b SET status = 'removed' FROM shifts s JOIN projects p ON p.id = s.project_id
+      WHERE b.worker_id = ${workerId} AND s.id = b.shift_id AND s.boss_id = ${u.id}
+        AND s.day >= ${siteToday(sql`p.tz`)} AND b.status IN ('accepted','clocked_in')
       RETURNING b.shift_id
     ),
     o AS (UPDATE shifts SET status = 'open' WHERE id IN (SELECT shift_id FROM b) AND status = 'filled'),
@@ -451,15 +470,23 @@ export async function sameAgainTomorrow(bookingId: string) {
   const [b] = await sql`
     SELECT b.worker_id, s.project_id, s.role, s.tickets_required, s.note, s.ot_mode, s.ot_after_hours, s.ot_multiplier, s.allow_offers,
            COALESCE(b.agreed_rate, s.rate) AS rate, COALESCE(b.agreed_hours, s.hours) AS hours, COALESCE(b.agreed_start, s.start_time) AS start_time,
-           GREATEST(s.day + 1, CURRENT_DATE) AS day
+           GREATEST(s.day + 1, ${siteToday(sql`p.tz`)}) AS day
     FROM bookings b JOIN shifts s ON s.id = b.shift_id JOIN projects p ON p.id = s.project_id
     WHERE b.id = ${bookingId} AND s.boss_id = ${u.id} AND NOT p.archived`;
   if (!b) return;
-  if (!(await hit(`shift-post:${u.id}`, SHIFT_POSTS_PER_HOUR, 3600))) return;   // a clone can buzz and text too
-  const [ns] = await sql`INSERT INTO shifts (project_id, boss_id, day, start_time, hours, spots, role, tickets_required, rate, note, direct_worker_id,
-      ot_mode, ot_after_hours, ot_multiplier, allow_offers)
-    VALUES (${b.project_id}, ${u.id}, ${b.day}, ${b.start_time}, ${b.hours}, 1, ${b.role}, ${b.tickets_required}, ${b.rate}, ${b.note}, ${b.worker_id},
-      ${b.ot_mode}, ${b.ot_after_hours}, ${b.ot_multiplier}, ${b.allow_offers}) RETURNING id`;
+  // A clone can buzz and text too, so it spends a posting slot — handed back when nothing was posted, as createShift does.
+  const key = `shift-post:${u.id}`;
+  if (!(await hit(key, SHIFT_POSTS_PER_HOUR, 3600))) { await refund(key, 3600); return; }
+  let ns: { id: string };
+  try {
+    [ns] = await sql<{ id: string }[]>`INSERT INTO shifts (project_id, boss_id, day, start_time, hours, spots, role, tickets_required, rate, note, direct_worker_id,
+        ot_mode, ot_after_hours, ot_multiplier, allow_offers)
+      VALUES (${b.project_id}, ${u.id}, ${b.day}, ${b.start_time}, ${b.hours}, 1, ${b.role}, ${b.tickets_required}, ${b.rate}, ${b.note}, ${b.worker_id},
+        ${b.ot_mode}, ${b.ot_after_hours}, ${b.ot_multiplier}, ${b.allow_offers}) RETURNING id`;
+  } catch (e) {
+    await refund(key, 3600);   // nothing was posted
+    throw e;
+  }
   await runMatchingRound(ns.id);
   redirect(`/boss/shifts/${ns.id}`);
 }
@@ -591,4 +618,108 @@ export async function clearWeather(shiftId: string) {
   if (!isUuid(shiftId)) return;
   await sql`UPDATE shifts SET weather_stop = NULL, weather_note = NULL, weather_at = NULL WHERE id = ${shiftId} AND boss_id = ${u.id}`;
   revalidatePath(`/boss/shifts/${shiftId}`);
+}
+
+/** Referenced inline, so nothing above this line changes: the shapes live beside the query that builds them. */
+type ApproveItem = import("@/lib/approveQueue").ApproveItem;
+type ApproveManyResult = import("@/lib/approveQueue").ApproveManyResult;
+
+/** What the per-booking statement hands back — the same columns approveHours reads, plus what it billed. */
+type ApprovedRow = {
+  id: string; worker_id: string; shift_id: string; hours_worked: string | null; rate: string; day: string;
+  ot_mode: "award" | "flat" | "custom"; ot_after_hours: string; ot_multiplier: string | null; billed: number;
+};
+
+/**
+ * Approve a whole queue in one go — the action behind /boss/approve, and the one that bills.
+ *
+ * Every line runs the statement approveHours runs for a single booking, in the order it was given, inside
+ * ONE transaction. That is not tidiness. The $2 introduction fee is settled by `billed_at IS NULL` and
+ * nothing else, and reading that guard inside the transaction is what makes a worker with two days in the
+ * queue cost $2 rather than $4: the first line stamps the introduction, the second finds it stamped and
+ * bills nothing. The transaction is also what makes a connection that dies halfway cost nothing at all —
+ * nothing commits, so there is no state where a boss has been billed for a match whose hours were never
+ * approved, and none where six people are approved and the fee was lost.
+ *
+ * The guard here is narrower than approveHours' own: 'clocked_out' only, on a shift belonging to this
+ * boss. The queue lists nothing else, and a bulk button that could also approve an 'accepted' booking
+ * would let one tap pay a worker who never turned up.
+ *
+ * A line that fails that guard — another tab approved it a second ago — does not roll the others back:
+ * five people are genuinely owed their money and holding it back helps nobody. It is never dropped in
+ * silence either. It comes back in `skipped` so its row can say so out loud, because a booking that
+ * quietly stays unapproved is exactly the pay dispute this screen was built to end.
+ *
+ * No rate limit: it sends no SMS and touches only this boss's own bookings. It does write each worker's
+ * notification, exactly as approving one at a time does. Dropping that on the fast path would mean the
+ * six people approved in one tap are the six who are never told what they were paid for.
+ */
+export async function approveMany(items: ApproveItem[]): Promise<ApproveManyResult> {
+  const u = await requireRole("boss");
+
+  // One entry per booking, and never more than a screen's worth. A repeated id would approve on its first
+  // copy and then report its second as a failure — a row telling the boss it did not go through when it did.
+  const seen = new Set<string>();
+  const clean: { id: string; hours: number; reason: string | null }[] = [];
+  const skipped: string[] = [];
+  for (const it of (items ?? []).slice(0, 200)) {
+    const id = String(it?.bookingId ?? "");
+    if (!isUuid(id) || seen.has(id)) continue;
+    seen.add(id);
+    // The same bounds approveHours uses. A value that is not a number at all is not an instruction to pay
+    // zero — it is a broken row, and it waits rather than being approved at the wrong number.
+    const hours = num(it?.hours, 0, 16, NaN);
+    if (Number.isNaN(hours)) { skipped.push(id); continue; }
+    clean.push({ id, hours, reason: String(it?.reason ?? "").trim().slice(0, 120) || null });
+  }
+  if (!clean.length) return { approved: 0, billed: 0, skipped };
+
+  let approved = 0, billed = 0;
+  const shiftIds = new Set<string>();
+  await sql.begin(async (tx) => {
+    for (const item of clean) {
+      // Line for line the statement in approveHours above, narrowed to 'clocked_out' and returning what it
+      // billed. Keep the two in step: if one grows a rule the other doesn't, the fast path and the slow path
+      // start paying the same day differently, and only one of them is on the payslip.
+      const [b] = await tx<ApprovedRow[]>`
+        WITH b AS (
+          UPDATE bookings b SET hours_approved = ${item.hours}, status = 'approved', approved_at = now(),
+            pay_reason = ${item.reason},
+            clock_out_at = COALESCE(b.clock_out_at, now()), hours_worked = COALESCE(b.hours_worked, ${item.hours})
+          FROM shifts s WHERE b.id = ${item.id} AND s.id = b.shift_id AND s.boss_id = ${u.id}
+            AND b.status = 'clocked_out'
+          RETURNING b.id, b.worker_id, b.shift_id, b.hours_worked, COALESCE(b.agreed_rate, s.rate) AS rate, s.day::text AS day,
+                    s.ot_mode, s.ot_after_hours, s.ot_multiplier
+        ), c AS (
+          INSERT INTO crew (boss_id, worker_id, type, rate) SELECT ${u.id}, worker_id, 'casual', rate FROM b ON CONFLICT DO NOTHING
+        ), i AS (
+          UPDATE introductions x SET billed_at = now(), billed_booking_id = b.id
+          FROM b WHERE x.boss_id = ${u.id} AND x.worker_id = b.worker_id AND x.billed_at IS NULL AND ${item.hours}::numeric > 0
+          RETURNING 1
+        )
+        SELECT b.*, (SELECT COUNT(*) FROM i)::int AS billed FROM b`;
+      if (!b) { skipped.push(item.id); continue; }
+
+      // Same maths as the Pay screen — overtime terms agreed on the shift, Award as the floor.
+      const pay = payForShift(item.hours, Number(b.rate), { ot_mode: b.ot_mode, ot_after_hours: b.ot_after_hours, ot_multiplier: b.ot_multiplier });
+      const edited = Number(b.hours_worked) !== item.hours;
+      await tx`INSERT INTO notifications (user_id, shift_id, kind, body) VALUES (${b.worker_id}, ${b.shift_id}, 'hours_approved',
+        ${`${fmtDay(b.day)}: ${item.hours}h approved${edited ? ` (you recorded ${Number(b.hours_worked)}h)` : ""}${item.reason ? ` — ${item.reason}` : ""}. $${pay.gross.toFixed(2)} owed by ${u.name}.`})`;
+
+      approved++;
+      billed += b.billed;
+      shiftIds.add(b.shift_id);
+    }
+  });
+
+  if (approved) sendAlertsSoon();
+  revalidatePath("/boss/approve");
+  revalidatePath("/boss");
+  revalidatePath("/boss/pay");
+  // Approving is what moves hours into the pay run and what puts the $2 on the fortnight's invoice, so the
+  // screen that shows both of those on one window has to be told as well.
+  revalidatePath("/boss/money");
+  // The jobs these hours were worked on still show their own approve forms until they are told otherwise.
+  for (const id of shiftIds) revalidatePath(`/boss/shifts/${id}`);
+  return { approved, billed, skipped };
 }

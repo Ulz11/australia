@@ -85,7 +85,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS offers_one_open ON offers(shift_id, worker_id)
 CREATE OR REPLACE VIEW site_crew AS
 SELECT p.id AS project_id, p.boss_id, p.crew_target,
        COUNT(DISTINCT b.worker_id) FILTER (
-         WHERE s.day >= CURRENT_DATE AND b.status NOT IN ('removed','cancelled')
+         WHERE s.day >= (now() AT TIME ZONE 'Australia/Sydney')::date AND b.status NOT IN ('removed','cancelled')
        )::int AS booked_ahead
 FROM projects p
 LEFT JOIN shifts s   ON s.project_id = p.id AND s.status IN ('open','filled')

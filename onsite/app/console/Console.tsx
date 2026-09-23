@@ -116,7 +116,9 @@ export function Console({ bosses, workers, counts: c0, env, tests, resultsHtml, 
       <section id="money" className="cr-section">
         <div className="cr-h">
           <h1>Three scenarios</h1>
-          <p>$1 a match, $33 a month, costed against real Stripe and Twilio pricing. Every assumption is a slider. <a href="/money-model.html" target="_blank" rel="noreferrer">Open full screen <ExternalLink size={14} strokeWidth={2.5} aria-hidden /></a></p>
+          {/* Said out loud rather than quietly left to read as current: the app charges $2 an introduction
+              on a fortnightly invoice and nothing else, and this model has not been re-run against that. */}
+          <p><b>Old pricing.</b> $1 a match and $33 a month, costed against real Stripe and Twilio pricing. Every assumption is a slider. OnSite now charges $2 an introduction, invoiced every 14 days, with no subscription — so read these three scenarios as the working, not as the plan. <a href="/money-model.html" target="_blank" rel="noreferrer">Open full screen <ExternalLink size={14} strokeWidth={2.5} aria-hidden /></a></p>
         </div>
         <iframe className="cr-money" src="/money-model.html" title="OnSite money model" />
       </section>

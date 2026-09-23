@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { siteToday } from "@/lib/siteClock";
 import { notFound } from "next/navigation";
 import { sql } from "@/lib/db";
 import { requireRole } from "@/lib/session";
@@ -36,9 +37,11 @@ export default async function Project({ params, searchParams }: { params: Promis
              WHERE c.boss_id = ${u.id} AND c.type = 'fulltime'
                AND EXISTS (SELECT 1 FROM bookings b JOIN shifts s2 ON s2.id = b.shift_id
                            WHERE b.worker_id = c.worker_id AND s2.project_id = ${id}
-                             AND s2.day >= CURRENT_DATE - 30 AND b.status NOT IN ('removed','cancelled')))::int AS own_crew,
+                             AND s2.day >= ${siteToday(sql`(SELECT tz FROM projects WHERE id = ${id})`)} - 30
+                             AND b.status NOT IN ('removed','cancelled')))::int AS own_crew,
           (SELECT COUNT(DISTINCT b.worker_id) FROM bookings b JOIN shifts s ON s.id = b.shift_id
-             WHERE s.project_id = ${id} AND s.day >= CURRENT_DATE AND b.status NOT IN ('removed','cancelled')
+             WHERE s.project_id = ${id} AND s.day >= ${siteToday(sql`(SELECT tz FROM projects WHERE id = ${id})`)}
+               AND b.status NOT IN ('removed','cancelled')
                AND NOT EXISTS (SELECT 1 FROM crew c2 WHERE c2.boss_id = ${u.id} AND c2.worker_id = b.worker_id AND c2.type = 'fulltime'))::int AS booked_ahead`,
   ]);
   if (!p) notFound();

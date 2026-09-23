@@ -13,6 +13,7 @@ import { CallLink } from "@/components/CallLink";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { updateCrew, removeFromCrew, blockWorker, logCall } from "@/actions/boss";
 import { AWARD_CASUAL_FLOOR, TICKETS, money } from "@/lib/award";
+import { payForShift, type OtTerms } from "@/lib/rules";
 import { fmtDay, todayIso } from "@/lib/util";
 import { licenceWords } from "@/lib/verify";
 import { isUuid } from "@/lib/validate";
@@ -20,13 +21,20 @@ import { workerForBoss, licencesForBoss } from "@/lib/bossQueries";
 import { share, SMALL_N, workerRecordForBoss } from "@/lib/profileStats";
 export const dynamic = "force-dynamic";
 
+/** One shift this worker did for this boss, with the terms it pays on (numeric columns arrive as strings). */
+type History = {
+  id: string; status: string; hours_approved: string | null; hours_worked: string | null; day: string; site: string;
+  rate: string; ot_mode: string; ot_after_hours: string; ot_multiplier: string | null;
+};
+
 export default async function WorkerProfile({ params }: { params: Promise<{ id: string }> }) {
   const u = await requireRole("boss");
   const { id } = await params;
   if (!isUuid(id)) notFound();
   const [w, history, licences, rec] = await Promise.all([
     workerForBoss(u.id, id),
-    sql`SELECT b.id, b.status, b.hours_approved, b.hours_worked, s.day, s.rate, p.name AS site
+    sql<History[]>`SELECT b.id, b.status, b.hours_approved, b.hours_worked, s.day::text AS day, p.name AS site,
+               COALESCE(b.agreed_rate, s.rate) AS rate, s.ot_mode, s.ot_after_hours, s.ot_multiplier
         FROM bookings b JOIN shifts s ON s.id = b.shift_id JOIN projects p ON p.id = s.project_id
         WHERE b.worker_id = ${id} AND s.boss_id = ${u.id} AND b.status <> 'removed' ORDER BY s.day DESC LIMIT 40`,
     licencesForBoss(id),
@@ -39,8 +47,11 @@ export default async function WorkerProfile({ params }: { params: Promise<{ id: 
   after(() => sql`INSERT INTO profile_views (boss_id, worker_id, day) VALUES (${u.id}, ${id}, ${day})
                   ON CONFLICT DO NOTHING`.catch((e) => console.error("profile view not recorded", (e as { code?: string })?.code ?? "error")));
   const rel = rec.reliability;
-  const total = history.filter((h) => h.hours_approved).reduce((a, h) => a + Number(h.hours_approved) * Number(h.rate), 0);
-  const owed = history.filter((h) => h.status === "approved").reduce((a, h) => a + Number(h.hours_approved) * Number(h.rate), 0);
+  // The same maths as Pay and the worker's own record: the terms agreed when the shift was posted, the Award as the floor.
+  const terms = (h: History): OtTerms => ({ ot_mode: h.ot_mode as OtTerms["ot_mode"], ot_after_hours: h.ot_after_hours, ot_multiplier: h.ot_multiplier });
+  const gross = (h: History) => (h.hours_approved == null ? 0 : payForShift(Number(h.hours_approved), Number(h.rate), terms(h)).gross);
+  const total = history.reduce((a, h) => a + gross(h), 0);
+  const owed = history.filter((h) => h.status === "approved").reduce((a, h) => a + gross(h), 0);
   const first = w.name.split(" ")[0];
   // What blocking them would actually do to work already booked (actions/boss.ts blockWorker).
   const coming = history.filter((h) => ["accepted", "clocked_in"].includes(h.status) && String(h.day) >= todayIso());
@@ -110,7 +121,7 @@ export default async function WorkerProfile({ params }: { params: Promise<{ id: 
               </div>
             );
           })}
-          <p className="text-xs text-steel">A green tick means we checked the card against the state register. Card numbers stay private to the worker — anything else, ask to see the card on site.</p>
+          <p className="text-sm text-steel">A green tick means we checked the card against the state register. Card numbers stay private to the worker — anything else, ask to see the card on site.</p>
         </div>
 
         <form action={updateCrew} className="card space-y-4">

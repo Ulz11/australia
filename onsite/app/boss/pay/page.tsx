@@ -6,18 +6,16 @@ import { Header, Page, Empty } from "@/components/Header";
 import { BigMoney, Flag } from "@/components/ui";
 import { money, SUPER_RATE } from "@/lib/award";
 import { payForShift } from "@/lib/rules";
+import { payRunTotals, type PayRunShift } from "@/lib/payRun";
 import { addDays, fmtDay, fmtRange, todayIso, weekStart } from "@/lib/util";
 import { markPaidMany } from "@/actions/boss";
 import { PaidToggle } from "./PaidToggle";
-import { Upsell } from "./Upsell";
-import { payToolsAllowed } from "@/lib/invoicing";
 export const dynamic = "force-dynamic";
 
 export default async function Pay({ searchParams }: { searchParams: Promise<{ week?: string }> }) {
   const u = await requireRole("boss");
-  // The pay run is the subscription. A lapsed boss gets the upsell instead — and keeps everything else.
-  const { allowed, boss } = await payToolsAllowed(u.id);
-  if (!allowed) return <><Header title="Pay" /><Page><Upsell boss={{ trial_ends_at: boss?.trial_ends_at ?? null }} /></Page></>;
+  // No gate. The pay run was once behind the subscription; there is no subscription, so every boss has it —
+  // including one who lapsed under the old rules and was locked out of their own approved hours.
   const { week } = await searchParams;
   const ws = weekStart(week || todayIso());
   const we = addDays(ws, 6);
@@ -33,13 +31,16 @@ export default async function Pay({ searchParams }: { searchParams: Promise<{ we
     ({ ot_mode: (r.ot_mode ?? "award") as never, ot_after_hours: r.ot_after_hours ?? 8, ot_multiplier: r.ot_multiplier ?? null });
   type R = (typeof rows)[number];
   const byWorker = new Map<string, { name: string; type: string | null; days: R[]; gross: number; superAmt: number; hours: number; paid: boolean }>();
+  // Every approved day, flat and ungrouped: what's still owed is counted one shift at a time (lib/payRun.ts).
+  const shifts: PayRunShift[] = [];
   for (const r of rows) {
     const p = payForShift(Number(r.hours_approved), Number(r.rate), terms(r as never));
     const w = byWorker.get(r.worker_id) ?? { name: r.name, type: r.type, days: [] as R[], gross: 0, superAmt: 0, hours: 0, paid: true };
     w.days.push(r); w.gross += p.gross; w.superAmt += p.superAmt; w.hours += Number(r.hours_approved); w.paid = w.paid && r.status === "paid";
+    shifts.push({ status: r.status, gross: p.gross, superAmt: p.superAmt });
     byWorker.set(r.worker_id, w);
   }
-  const totals = [...byWorker.values()].reduce((a, w) => ({ gross: a.gross + w.gross, sup: a.sup + w.superAmt, owed: a.owed + (w.paid ? 0 : w.gross) }), { gross: 0, sup: 0, owed: 0 });
+  const totals = payRunTotals(shifts);
 
   return (
     <>
@@ -81,8 +82,12 @@ export default async function Pay({ searchParams }: { searchParams: Promise<{ we
                     <span>{fmtDay(d.day)} · {Number(d.hours_approved)}h{p.ot150 + p.ot200 > 0 ? <span className="text-steel text-sm"> ({p.ot150 + p.ot200}h overtime)</span> : null}</span>
                     <span>{money(p.gross)}</span>
                   </div>
-                  <div className="text-xs text-steel">{p.words}{p.appliedFloor ? " — topped up to the Award" : ""}{d.pay_reason ? ` · ${d.pay_reason}` : ""}</div>
-                  {d.disputed_at && <Flag tone="orange" className="mt-1">{w.name.split(" ")[0]} disagrees with these hours — give them a call</Flag>}
+                  <div className="text-sm text-steel">{p.words}{p.appliedFloor ? " — topped up to the Award" : ""}{d.pay_reason ? ` · ${d.pay_reason}` : ""}</div>
+                  {/* Ink, not orange. The one orange on this screen is the hero, and it is already lit
+                      whenever anything is owed — which is whenever there are rows here at all. A second
+                      "this needs you, now" a few hundred pixels below it, once per disputed day, and
+                      neither of them means it. /boss/money draws the same badge the same way. */}
+                  {d.disputed_at && <Flag tone="dark" icon={CircleAlert} className="mt-1">{w.name.split(" ")[0]} disagrees with these hours — give them a call</Flag>}
                 </div>); })}
               <div className="py-2 flex justify-between text-lg font-extrabold"><span>{w.hours}h</span><span>{money(w.gross)}</span></div>
               <div className="text-sm text-steel pt-1">+ {money(w.superAmt)} super to their fund</div>
